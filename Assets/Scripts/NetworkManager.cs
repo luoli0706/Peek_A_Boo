@@ -28,7 +28,7 @@ public class NetworkManager : MonoBehaviour
         Debug.Log("[Network] ENET initialized");
 
         host = new ENet.Host();
-        host.Create(); // client host — no address needed
+        host.Create(1, 2); // client host: 1 peer, 2 channels (ch0=reliable, ch1=unreliable)
         Debug.Log("[Network] Client host created");
 
         ENet.Address address = new ENet.Address();
