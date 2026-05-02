@@ -1,4 +1,4 @@
-#include <enet/enet.h>
+#include "enet.h"
 #include <cstdio>
 #include <cstring>
 #include <vector>
@@ -62,10 +62,10 @@ int main() {
     atexit(enet_deinitialize);
 
     ENetAddress address;
-    address.host = ENET_HOST_ANY;
+    address.ipv6 = ENET_HOST_ANY;
     address.port = SERVER_PORT;
 
-    ENetHost* host = enet_host_create(&address, MAX_PLAYERS, ENET_CHANNELS, 0, 0);
+    ENetHost* host = enet_host_create(&address, MAX_PLAYERS, ENET_CHANNELS, 0, 0, 0);
     if (!host) {
         fprintf(stderr, "FATAL: enet_host_create() failed\n");
         return 1;
