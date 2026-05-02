@@ -12,7 +12,7 @@ UserSettings/
 _bmad/
 .bmad/
 .claude/
-server/build/
+server/build*/
 Assets/Plugins/ENet-CSharp/.git/
 Assets/Plugins/ENet-CSharp/Source/Native/build/
 server/deps/enet/.git/
