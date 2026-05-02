@@ -33,7 +33,7 @@ public class NetworkManager : MonoBehaviour
 
         ENet.Address address = new ENet.Address();
         address.SetHost(serverIP);
-        address.SetPort(serverPort);
+        address.Port = serverPort;
 
         peer = host.Connect(address, 2); // 2 channels (ch0=reliable, ch1=unreliable)
         Debug.Log($"[Network] Connecting to {serverIP}:{serverPort}...");
