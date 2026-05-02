@@ -13,9 +13,10 @@ public class NetworkManager : MonoBehaviour
 
     private ENet.Host host;
     private ENet.Peer peer;
-    private bool connected;
     private byte myPlayerId;
     private byte myRole;
+
+    public bool IsConnected => peer.IsSet;
 
     void Start()
     {
@@ -66,7 +67,6 @@ public class NetworkManager : MonoBehaviour
 
     void OnConnect()
     {
-        connected = true;
         Debug.Log("[Network] Connected to server! Waiting for Welcome...");
     }
 
@@ -148,13 +148,12 @@ public class NetworkManager : MonoBehaviour
 
     void OnDisconnect(ENet.EventType type)
     {
-        connected = false;
         Debug.LogWarning($"[Network] Disconnected (type={type})");
     }
 
     public void Send(byte channel, bool reliable, byte[] data)
     {
-        if (peer == null || !peer.IsSet) return;
+        if (!peer.IsSet) return;
 
         ENet.Packet packet = default(ENet.Packet);
         ENet.PacketFlags flags = reliable ? ENet.PacketFlags.Reliable : ENet.PacketFlags.Unsequenced;
@@ -164,7 +163,7 @@ public class NetworkManager : MonoBehaviour
 
     void OnDestroy()
     {
-        if (peer != null && peer.IsSet)
+        if (peer.IsSet)
             peer.DisconnectNow(0);
 
         if (host != null && host.IsSet)
