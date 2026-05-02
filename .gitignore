@@ -1,0 +1,20 @@
+# Temporary Gitignore for development
+Library/
+Temp/
+Obj/
+Build/
+Builds/
+Logs/
+MemoryCaptures/
+UserSettings/
+.gemini/
+.github/
+_bmad/
+.bmad/
+.claude/
+server/build/
+Assets/Plugins/ENet-CSharp/.git/
+Assets/Plugins/ENet-CSharp/Source/Native/build/
+server/deps/enet/.git/
+server/deps/enet/.github/
+Tools/

@@ -1,0 +1,36 @@
+# GDS Workflow Status Tracking
+# Generated: 2026-05-02
+project_name: Peek-A-Boo
+project_type: game
+engine: unity
+engine_version: "6.3 LTS"
+template: FPS
+
+phase: 1-preproduction
+workflows:
+  brainstorm-game:
+    status: completed
+    started: 2026-05-02
+    output: _bmad-output/brainstorming-session-2026-05-02.md
+  create-game-brief:
+    status: completed
+    started: 2026-05-02
+    output: _bmad-output/game-brief.md
+  create-gdd:
+    status: completed
+    started: 2026-05-02
+    output: docs/BluePrint.md
+  game-architecture:
+    status: completed
+    included_in: docs/BluePrint.md
+    version: v3.0
+    architecture: C++20 Dedicated Server + ENET (UDP) + Unity Client
+    server_stack: [C++20, libenet, CMake 3.20+, MinGW-W64 GCC 14+]
+    client_stack: [Unity 6.3 LTS, URP, FPS Template, ENet-CSharp]
+    protocol: ENET UDP Binary (ch0=Reliable ch1=Unreliable, 20Hz Tick)
+    deployment: Linux Server + Windows Clients
+    phase0_tools:
+      - Tools/msys2-x86_64-latest.exe (downloaded)
+      - server/deps/enet/ (libenet, cloned)
+      - Assets/Plugins/ENet-CSharp/ (Unity plugin, cloned)
+    phase0_goal: 2 Unity clients connect to 1 C++ ENET server
