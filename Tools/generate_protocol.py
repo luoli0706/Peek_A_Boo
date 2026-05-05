@@ -1,0 +1,685 @@
+#!/usr/bin/env python3
+"""
+Peek-A-Boo Protocol Code Generator
+Reads protocol_defs.json (single source of truth) and generates:
+  - server/src/generated_protocol.h   (C++ header-only)
+  - Assets/Scripts/GeneratedProtocol.cs (C#)
+
+Usage: python3 generate_protocol.py
+"""
+
+import json
+import os
+from datetime import datetime
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+
+DEFS_PATH = os.path.join(SCRIPT_DIR, "protocol_defs.json")
+CPP_OUT = os.path.join(PROJECT_ROOT, "server", "src", "generated_protocol.h")
+CS_OUT = os.path.join(PROJECT_ROOT, "Assets", "Scripts", "GeneratedProtocol.cs")
+
+CPP_T = {"u8": "uint8_t", "u16_le": "uint16_t", "f32": "float"}
+CS_T  = {"u8": "byte",   "u16_le": "ushort",   "f32": "float"}
+
+def load_defs():
+    with open(DEFS_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+# ── Helpers ───────────────────────────────────────────────────────
+
+def is_size_field(f, fields):
+    """Check if this field is referenced as a size_ref or count_ref by another field."""
+    for other in fields:
+        if other.get("size_ref") == f["name"] or other.get("count_ref") == f["name"]:
+            return True
+    return False
+
+def field_cpp_type(f):
+    if f["type"] == "bytes" or f["type"] == "bytes_remaining":
+        return "const std::string&"
+    if f["type"] == "array":
+        return f"const {f['element']}*"
+    return CPP_T.get(f["type"], f["type"])
+
+def field_cpp_out_type(f):
+    if f["type"] == "bytes" or f["type"] == "bytes_remaining":
+        return "std::string&"
+    if f["type"] == "array":
+        return f"{f['element']}*"
+    return f"{CPP_T.get(f['type'], f['type'])}&"
+
+def field_cs_type(f):
+    if f["type"] == "bytes" or f["type"] == "bytes_remaining":
+        return "byte[]"
+    if f["type"] == "array":
+        return f"{f['element']}[]"
+    return CS_T.get(f["type"], f["type"])
+
+# ── C++ Serialize line for a single field ─────────────────────────
+
+def cpp_ser_line(f, fields, prefix):
+    """Return list of C++ lines to serialize field `f`. prefix: '' (msg param) or 'e.' (struct)."""
+    name = f["name"]
+    t = f["type"]
+    lines = []
+    if t == "u8":
+        lines.append(f"    buf[off++] = {prefix}{name};")
+    elif t == "u16_le":
+        lines.append(f"    buf[off++] = static_cast<uint8_t>({prefix}{name} & 0xFF);")
+        lines.append(f"    buf[off++] = static_cast<uint8_t>(({prefix}{name} >> 8) & 0xFF);")
+    elif t == "f32":
+        lines.append(f"    memcpy(&buf[off], &{prefix}{name}, 4); off += 4;")
+    elif t == "bytes":
+        size_ref = f.get("size_ref", "")
+        if size_ref:
+            # size byte written by separate size field — only write data
+            lines.append(f"    memcpy(&buf[off], {prefix}{name}.data(), {prefix}{name}.size()); off += {prefix}{name}.size();")
+        else:
+            lines.append(f"    buf[off++] = static_cast<uint8_t>({prefix}{name}.size());")
+            lines.append(f"    memcpy(&buf[off], {prefix}{name}.data(), {prefix}{name}.size()); off += {prefix}{name}.size();")
+    elif t == "bytes_remaining":
+        lines.append(f"    memcpy(&buf[off], {prefix}{name}.data(), {prefix}{name}.size()); off += {prefix}{name}.size();")
+    elif t == "array":
+        count_ref = f.get("count_ref", "count")
+        lines.append(f"    for (uint8_t _i = 0; _i < {prefix}{count_ref}; _i++) {{")
+        lines.append(f"        off += serialize_{f['element']}(&buf[off], {prefix}{name}[_i]);")
+        lines.append(f"    }}")
+    return lines
+
+def cpp_deser_line(f, fields, dtype="data", idx="off"):
+    """Return list of C++ lines to deserialize field `f` into local variable."""
+    name = f["name"]
+    t = f["type"]
+    lines = []
+    if t == "u8":
+        lines.append(f"    uint8_t _{name} = {dtype}[{idx}++];")
+    elif t == "u16_le":
+        lines.append(f"    uint16_t _{name} = static_cast<uint16_t>({dtype}[{idx}]) | (static_cast<uint16_t>({dtype}[{idx}+1]) << 8); {idx} += 2;")
+    elif t == "f32":
+        lines.append(f"    float _{name}; memcpy(&_{name}, &{dtype}[{idx}], 4); {idx} += 4;")
+    elif t == "bytes":
+        size_ref = f.get("size_ref", "")
+        if size_ref:
+            lines.append(f"    std::string _{name}(reinterpret_cast<const char*>(&{dtype}[{idx}]), _{size_ref}); {idx} += _{size_ref};")
+        else:
+            lines.append(f"    uint8_t _{name}_len = {dtype}[{idx}++];")
+            lines.append(f"    std::string _{name}(reinterpret_cast<const char*>(&{dtype}[{idx}]), _{name}_len); {idx} += _{name}_len;")
+    elif t == "bytes_remaining":
+        lines.append(f"    std::string _{name}(reinterpret_cast<const char*>(&{dtype}[{idx}]), max_len - ({idx}));")
+    elif t == "array":
+        count_ref = f.get("count_ref", "count")
+        lines.append(f"    // _{count_ref} already read above; deserialize each element")
+    return lines
+
+# ── C++ Generation ────────────────────────────────────────────────
+
+def gen_cpp(defs):
+    L = []
+    L.append("// Auto-generated by generate_protocol.py — DO NOT EDIT")
+    L.append(f"// Generated: {datetime.now().isoformat()}")
+    L.append("// Single source of truth: Tools/protocol_defs.json")
+    L.append("")
+    L.append("#pragma once")
+    L.append("")
+    L.append('#include "enet.h"')
+    L.append("#include <cstdint>")
+    L.append("#include <cstring>")
+    L.append("#include <string>")
+    L.append("")
+
+    # Constants
+    for k, v in defs.get("constants", {}).items():
+        L.append(f"constexpr int {k} = {v};")
+    L.append("")
+    L.append("constexpr int ENET_CHANNELS = 2;")
+    L.append("constexpr int ENET_CH_RELIABLE = 0;")
+    L.append("constexpr int ENET_CH_UNRELIABLE = 1;")
+    L.append("")
+
+    # Enums
+    for e in defs.get("enums", []):
+        L.append(f"enum class {e['name']} : {CPP_T[e['type']]} {{")
+        for i, v in enumerate(e["values"]):
+            comma = "," if i < len(e["values"]) - 1 else ""
+            L.append(f"    {v} = {i}{comma}")
+        L.append("};")
+        L.append("")
+
+    # MsgType constants
+    L.append("namespace MsgType {")
+    for m in defs["messages"]:
+        L.append(f"    constexpr uint8_t {m['name']} = {m['id']};")
+    L.append("}")
+    L.append("")
+
+    # Forward-declare Player (for send_PlayerStates)
+    L.append("struct Player;")
+    L.append("")
+
+    # Structs
+    for s in defs.get("structs", []):
+        L.append(f"struct {s['name']} {{")
+        for f in s["fields"]:
+            if f["type"] in ("bytes", "bytes_remaining"):
+                L.append(f"    std::vector<uint8_t> {f['name']};")
+            elif f["type"] == "array":
+                L.append(f"    // array handled separately")
+            else:
+                L.append(f"    {CPP_T[f['type']]} {f['name']};")
+        L.append("};")
+        L.append("")
+
+    # Struct serializer helpers
+    for s in defs.get("structs", []):
+        sn = s["name"]
+        L.append(f"inline size_t serialize_{sn}(uint8_t* buf, const {sn}& e) {{")
+        L.append(f"    size_t off = 0;")
+        for f in s["fields"]:
+            if f["type"] == "array":
+                count_ref = f.get("count_ref", "count")
+                L.append(f"    // count byte already written by caller")
+                L.append(f"    for (uint8_t _i = 0; _i < e.{count_ref}; _i++) {{")
+                L.append(f"        off += serialize_{f['element']}(&buf[off], e.{f['name']}[_i]);")
+                L.append(f"    }}")
+            else:
+                for line in cpp_ser_line(f, s["fields"], "e."):
+                    L.append(line)
+        L.append(f"    return off;")
+        L.append(f"}}")
+        L.append("")
+
+        L.append(f"inline size_t deserialize_{sn}(const uint8_t* data, size_t max_len, {sn}& e) {{")
+        L.append(f"    size_t off = 0;")
+        # Pre-read size refs
+        size_refs = set()
+        for f in s["fields"]:
+            if f.get("size_ref"):
+                size_refs.add(f["size_ref"])
+        for f in s["fields"]:
+            if f["type"] == "u8" and f["name"] in size_refs:
+                L.append(f"    uint8_t _{f['name']} = data[off++];")
+                L.append(f"    e.{f['name']} = _{f['name']};")
+            elif f["type"] == "u8":
+                L.append(f"    e.{f['name']} = data[off++];")
+            elif f["type"] == "u16_le":
+                L.append(f"    e.{f['name']} = static_cast<uint16_t>(data[off]) | (static_cast<uint16_t>(data[off+1]) << 8); off += 2;")
+            elif f["type"] == "f32":
+                L.append(f"    memcpy(&e.{f['name']}, &data[off], 4); off += 4;")
+        L.append(f"    return off;")
+        L.append(f"}}")
+        L.append("")
+
+    # Message build/parse functions
+    L.append("// ═══ Message serialization (build_xxx / parse_xxx) ═══")
+    L.append("")
+
+    for m in defs["messages"]:
+        name = m["name"]
+        fields = m["fields"]
+
+        # ── build_xxx ──
+        arg_list = ["uint8_t* buf"]
+        for f in fields:
+            if is_size_field(f, fields):
+                continue  # skip: sizes are derived from their container
+            arg_list.append(f"{field_cpp_type(f)} {f['name']}")
+            if f["type"] == "array":
+                count_ref = f.get("count_ref", "count")
+                arg_list.append(f"uint8_t {count_ref}")
+
+        arg_str = ", ".join(arg_list)
+        L.append(f"// {name} ({m['direction'].replace('_','→')}) — {m.get('doc','')}")
+        L.append(f"inline size_t build_{name}({arg_str}) {{")
+        L.append(f"    size_t off = 0;")
+        L.append(f"    buf[off++] = MsgType::{name};")
+
+        for f in fields:
+            if is_size_field(f, fields):
+                # Serialize the size field (it's a u8 whose value comes from another field's length)
+                container = next(ff for ff in fields if ff.get("size_ref") == f["name"] or ff.get("count_ref") == f["name"])
+                if container["type"] == "bytes":
+                    L.append(f"    buf[off++] = static_cast<uint8_t>({container['name']}.size());")
+                elif container["type"] == "array":
+                    count_ref = container.get("count_ref", "count")
+                    L.append(f"    buf[off++] = {count_ref};")
+                continue
+            for line in cpp_ser_line(f, fields, ""):
+                L.append(line)
+
+        L.append(f"    return off;")
+        L.append(f"}}")
+        L.append("")
+
+        # ── parse_xxx ──
+        out_list = ["const uint8_t* data", "size_t max_len"]
+        for f in fields:
+            if is_size_field(f, fields):
+                continue
+            out_list.append(f"{field_cpp_out_type(f)} out_{f['name']}")
+            if f["type"] == "array":
+                count_ref = f.get("count_ref", "count")
+                out_list.append(f"uint8_t& out_{count_ref}")
+
+        out_str = ", ".join(out_list)
+        L.append(f"inline bool parse_{name}({out_str}) {{")
+        L.append(f"    size_t off = 0;")
+
+        # Pre-read size/count fields
+        size_fields = {f["name"] for f in fields if is_size_field(f, fields)}
+
+        for f in fields:
+            if f["name"] in size_fields:
+                L.append(f"    uint8_t _{f['name']} = data[off++];")
+                L.append(f"    // (used by downstream field)")
+
+        for f in fields:
+            if f["name"] in size_fields:
+                continue
+            if f["type"] == "array":
+                count_ref = f.get("count_ref", "count")
+                L.append(f"    out_{count_ref} = _{count_ref};")
+                L.append(f"    // element deserialization handled by caller (variable-size)")
+                continue
+            for line in cpp_deser_line(f, fields):
+                L.append(line)
+            # Assign to out parameter
+            if f["type"] in ("bytes", "bytes_remaining"):
+                L.append(f"    out_{f['name']} = std::move(_{f['name']});")
+            else:
+                L.append(f"    out_{f['name']} = _{f['name']};")
+
+        # Size guard
+        total_fixed = 0
+        for f in fields:
+            if f["type"] == "u8": total_fixed += 1
+            elif f["type"] == "u16_le": total_fixed += 2
+            elif f["type"] == "f32": total_fixed += 4
+        if total_fixed > 0:
+            # Replace the check we should have put at the start
+            pass  # Already inline above
+
+        L.append(f"    return true;")
+        L.append(f"}}")
+        L.append("")
+
+    # ── Convenience send wrappers ──
+    L.append("// ═══ Convenience send wrappers (allocate ENetPacket + send) ═══")
+    L.append("")
+    for m in defs["messages"]:
+        if m["direction"] != "server_to_client":
+            continue
+        name = m["name"]
+        fields = m["fields"]
+        ch = "ENET_CH_RELIABLE" if m["channel"] == "reliable" else "ENET_CH_UNRELIABLE"
+        flag = "ENET_PACKET_FLAG_RELIABLE" if m["channel"] == "reliable" else "ENET_PACKET_FLAG_UNSEQUENCED"
+
+        if name == "PlayerStates":
+            L.append(f"inline void send_{name}(ENetHost* host, const Player* players, size_t count) {{")
+            L.append(f"    uint8_t buf[2 + MAX_PLAYERS * 14];")
+            L.append(f"    size_t off = 0;")
+            L.append(f"    buf[off++] = MsgType::{name};")
+            L.append(f"    size_t cnt_off = off++;")
+            L.append(f"    uint8_t actual = 0;")
+            L.append(f"    for (size_t i = 0; i < count; i++) {{")
+            L.append(f"        if (!players[i].connected || players[i].peer == nullptr) continue;")
+            L.append(f"        buf[off++] = players[i].id;")
+            L.append(f"        buf[off++] = static_cast<uint8_t>(players[i].state);")
+            L.append(f"        memcpy(&buf[off], &players[i].pos_x, 4); off += 4;")
+            L.append(f"        memcpy(&buf[off], &players[i].pos_z, 4); off += 4;")
+            L.append(f"        memcpy(&buf[off], &players[i].rot_y, 4); off += 4;")
+            L.append(f"        actual++;")
+            L.append(f"    }}")
+            L.append(f"    if (actual == 0) return;")
+            L.append(f"    buf[cnt_off] = actual;")
+            L.append(f"    ENetPacket* pkt = enet_packet_create(buf, off, {flag});")
+            L.append(f"    enet_host_broadcast(host, {ch}, pkt);")
+            L.append(f"}}")
+        elif not fields:
+            L.append(f"inline void send_{name}(ENetPeer* peer) {{")
+            L.append(f"    uint8_t buf[1] = {{ MsgType::{name} }};")
+            L.append(f"    ENetPacket* pkt = enet_packet_create(buf, 1, {flag});")
+            L.append(f"    enet_peer_send(peer, {ch}, pkt);")
+            L.append(f"}}")
+        else:
+            # Build arg list: skip size fields
+            call_args = []
+            param_list = ["ENetPeer* peer"]
+            for f in fields:
+                if is_size_field(f, fields):
+                    continue
+                param_list.append(f"{field_cpp_type(f)} {f['name']}")
+                call_args.append(f['name'])
+                if f["type"] == "array":
+                    count_ref = f.get("count_ref", "count")
+                    param_list.append(f"uint8_t {count_ref}")
+                    call_args.append(count_ref)
+
+            param_str = ", ".join(param_list)
+            call_str = ", ".join(call_args)
+
+            L.append(f"inline void send_{name}({param_str}) {{")
+            L.append(f"    uint8_t buf[256];")
+            L.append(f"    size_t len = build_{name}(buf, {call_str});")
+            L.append(f"    ENetPacket* pkt = enet_packet_create(buf, len, {flag});")
+            L.append(f"    enet_peer_send(peer, {ch}, pkt);")
+            L.append(f"}}")
+        L.append("")
+
+    return "\n".join(L)
+
+# ── C# Serialize line ─────────────────────────────────────────────
+
+def cs_ser_line(f, fields, indent, prefix=""):
+    """Return list of C# lines to serialize field `f`. prefix: '' (msg) or 'e.' (struct)."""
+    name = f["name"]
+    t = f["type"]
+    lines = []
+    if t == "u8":
+        lines.append(f"{indent}buf[offset++] = {prefix}{name};")
+    elif t == "u16_le":
+        lines.append(f"{indent}buf[offset++] = (byte)({prefix}{name} & 0xFF);")
+        lines.append(f"{indent}buf[offset++] = (byte)(({prefix}{name} >> 8) & 0xFF);")
+    elif t == "f32":
+        lines.append(f"{indent}System.BitConverter.GetBytes({prefix}{name}).CopyTo(buf, offset); offset += 4;")
+    elif t == "bytes":
+        size_ref = f.get("size_ref", "")
+        if size_ref:
+            # size byte written by separate field — only write data
+            lines.append(f"{indent}System.Buffer.BlockCopy({prefix}{name}, 0, buf, offset, {prefix}{name}.Length); offset += {prefix}{name}.Length;")
+        else:
+            lines.append(f"{indent}buf[offset++] = (byte){prefix}{name}.Length;")
+            lines.append(f"{indent}System.Buffer.BlockCopy({prefix}{name}, 0, buf, offset, {prefix}{name}.Length); offset += {prefix}{name}.Length;")
+    elif t == "bytes_remaining":
+        lines.append(f"{indent}System.Buffer.BlockCopy({prefix}{name}, 0, buf, offset, {prefix}{name}.Length); offset += {prefix}{name}.Length;")
+    elif t == "array":
+        count_ref = f.get("count_ref", "count")
+        if prefix == "":
+            # Message context: size field skipped, use array.Length
+            lines.append(f"{indent}for (int _i = 0; _i < {name}.Length; _i++)")
+        else:
+            # Struct context: count_ref is a struct field
+            lines.append(f"{indent}for (int _i = 0; _i < {prefix}{count_ref}; _i++)")
+        lines.append(f"{indent}{{")
+        lines.append(f"{indent}    offset += Serialize{f['element']}(buf, offset, {prefix}{name}[_i]);")
+        lines.append(f"{indent}}}")
+    return lines
+
+def cs_deser_line(f, fields, indent):
+    """Return list of C# lines to deserialize field `f`."""
+    name = f["name"]
+    t = f["type"]
+    lines = []
+    if t == "u8":
+        lines.append(f"{indent}{name} = payload[offset++];")
+    elif t == "u16_le":
+        lines.append(f"{indent}{name} = (ushort)(payload[offset] | (payload[offset + 1] << 8)); offset += 2;")
+    elif t == "f32":
+        lines.append(f"{indent}{name} = System.BitConverter.ToSingle(payload, offset); offset += 4;")
+    elif t == "bytes":
+        size_ref = f.get("size_ref", "")
+        if size_ref:
+            # size_ref already read by a previous field
+            lines.append(f"{indent}{name} = new byte[{size_ref}];")
+            lines.append(f"{indent}System.Buffer.BlockCopy(payload, offset, {name}, 0, {size_ref}); offset += {size_ref};")
+        else:
+            lines.append(f"{indent}byte {name}_len = payload[offset++];")
+            lines.append(f"{indent}{name} = new byte[{name}_len];")
+            lines.append(f"{indent}System.Buffer.BlockCopy(payload, offset, {name}, 0, {name}_len); offset += {name}_len;")
+    elif t == "bytes_remaining":
+        lines.append(f"{indent}{name} = new byte[payload.Length - offset];")
+        lines.append(f"{indent}System.Buffer.BlockCopy(payload, offset, {name}, 0, {name}.Length);")
+    elif t == "array":
+        count_ref = f.get("count_ref", "count")
+        # In message context, count_ref was pre-read as a local byte variable
+        # In struct context, count_ref is a struct field accessed via prefix
+        lines.append(f"{indent}{name} = new {f['element']}[{count_ref}];")
+        lines.append(f"{indent}for (int _i = 0; _i < {count_ref}; _i++)")
+        lines.append(f"{indent}{{")
+        lines.append(f"{indent}    offset += Deserialize{f['element']}(payload, offset, out {name}[_i]);")
+        lines.append(f"{indent}}}")
+    return lines
+
+# ── C# Generation ─────────────────────────────────────────────────
+
+def gen_cs(defs):
+    L = []
+    L.append("// Auto-generated by generate_protocol.py — DO NOT EDIT")
+    L.append(f"// Generated: {datetime.now().isoformat()}")
+    L.append("// Single source of truth: Tools/protocol_defs.json")
+    L.append("")
+    L.append("using System;")
+    L.append("")
+
+    # MsgType
+    L.append("public static class MsgType")
+    L.append("{")
+    for m in defs["messages"]:
+        dir_char = "C→S" if m["direction"] == "client_to_server" else "S→C"
+        L.append(f"    // {dir_char} {m.get('doc','')}")
+        L.append(f"    public const byte {m['name']} = {m['id']};")
+    L.append("}")
+    L.append("")
+
+    # Enums (skip cpp_only)
+    for e in defs.get("enums", []):
+        if e.get("cpp_only", False):
+            continue
+        L.append(f"public enum {e['name']} : byte")
+        L.append("{")
+        for i, v in enumerate(e["values"]):
+            comma = "," if i < len(e["values"]) - 1 else ""
+            L.append(f"    {v} = {i}{comma}")
+        L.append("}")
+        L.append("")
+
+    # Structs
+    for s in defs.get("structs", []):
+        L.append(f"public struct {s['name']}")
+        L.append("{")
+        for f in s["fields"]:
+            L.append(f"    public {CS_T.get(f['type'], f['type'])} {f['name']};")
+        L.append("}")
+        L.append("")
+
+    # ProtocolSerializer
+    L.append("public static class ProtocolSerializer")
+    L.append("{")
+
+    # Struct (de)serialize helpers
+    for s in defs.get("structs", []):
+        sn = s["name"]
+        L.append(f"    public static int Serialize{sn}(byte[] buf, int offset, {sn} e)")
+        L.append(f"    {{")
+        for f in s["fields"]:
+            for line in cs_ser_line(f, s["fields"], "        ", "e."):
+                L.append(line)
+        L.append(f"        return {struct_byte_size(s)};")
+        L.append(f"    }}")
+        L.append("")
+
+        L.append(f"    public static int Deserialize{sn}(byte[] payload, int offset, out {sn} e)")
+        L.append(f"    {{")
+        L.append(f"        e = new {sn}();")
+        # Pre-read size refs
+        size_refs = set()
+        for f in s["fields"]:
+            if f.get("size_ref"):
+                size_refs.add(f["size_ref"])
+        for f in s["fields"]:
+            if f["name"] in size_refs:
+                L.append(f"        byte {f['name']} = payload[offset++];")
+        for f in s["fields"]:
+            if f["name"] in size_refs:
+                continue
+            for line in cs_deser_line(f, s["fields"], "        "):
+                # Replace bare field name with e.field_name
+                fixed = line.replace(f"{f['name']} =", f"e.{f['name']} =", 1)
+                if fixed == line:
+                    # Try without "= "
+                    fixed = line
+                L.append(fixed)
+        L.append(f"        return {struct_byte_size(s)};")
+        L.append(f"    }}")
+        L.append("")
+
+    # Message (de)serialize
+    for m in defs["messages"]:
+        name = m["name"]
+        fields = m["fields"]
+
+        # ── Serialize ──
+        if not fields:
+            L.append(f"    public static byte[] Serialize{name}()")
+            L.append(f"    {{")
+            L.append(f"        return new byte[] {{ MsgType.{name} }};")
+            L.append(f"    }}")
+            L.append("")
+            continue
+
+        # Build parameter list (skip size fields)
+        params = []
+        call_args = []
+        for f in fields:
+            if is_size_field(f, fields):
+                continue
+            params.append(f"{field_cs_type(f)} {f['name']}")
+            call_args.append(f['name'])
+
+        param_str = ", ".join(params)
+        call_str = ", ".join(call_args)
+
+        L.append(f"    // {name} — {m.get('doc','')}")
+        L.append(f"    public static byte[] Serialize{name}({param_str})")
+        L.append(f"    {{")
+
+        # Calculate buffer size
+        fixed = 1  # msg_type
+        dyn_parts = []
+        for f in fields:
+            if is_size_field(f, fields):
+                fixed += 1  # the size byte itself
+                continue
+            bs = field_byte_size(f)
+            if bs > 0:
+                fixed += bs
+            else:
+                # Dynamic size — compute at runtime
+                if f["type"] == "bytes":
+                    size_ref = f.get("size_ref", "")
+                    if size_ref:
+                        dyn_parts.append(f"{f['name']}.Length")  # data bytes
+                    else:
+                        dyn_parts.append(f"1 + {f['name']}.Length")  # length byte + data
+                elif f["type"] == "bytes_remaining":
+                    dyn_parts.append(f"{f['name']}.Length")
+                elif f["type"] == "array":
+                    dyn_parts.append(f"{f['name']}.Length * 14")
+
+        if dyn_parts:
+            L.append(f"        int size = {fixed}" + "".join(f" + {d}" for d in dyn_parts) + ";")
+            L.append(f"        byte[] buf = new byte[size];")
+        else:
+            L.append(f"        byte[] buf = new byte[{fixed}];")
+
+        L.append(f"        int offset = 0;")
+        L.append(f"        buf[offset++] = MsgType.{name};")
+
+        for f in fields:
+            if is_size_field(f, fields):
+                # Write the size byte from its container's actual length
+                container = next(ff for ff in fields if ff.get("size_ref") == f["name"] or ff.get("count_ref") == f["name"])
+                if container["type"] == "bytes":
+                    L.append(f"        buf[offset++] = (byte){container['name']}.Length;")
+                elif container["type"] == "array":
+                    L.append(f"        buf[offset++] = (byte){container['name']}.Length;")
+                continue
+            for line in cs_ser_line(f, fields, "        "):
+                L.append(line)
+
+        L.append(f"        return buf;")
+        L.append(f"    }}")
+        L.append("")
+
+        # ── Deserialize (server→client only) ──
+        if m["direction"] != "server_to_client":
+            continue
+
+        out_params = []
+        for f in fields:
+            if is_size_field(f, fields):
+                continue
+            out_params.append(f"out {field_cs_type(f)} {f['name']}")
+
+        out_str = ", ".join(out_params)
+        L.append(f"    public static void Deserialize{name}(byte[] payload, {out_str})")
+        L.append(f"    {{")
+
+        # Init defaults
+        for f in fields:
+            if is_size_field(f, fields):
+                continue
+            if f["type"] == "array":
+                L.append(f"        {f['name']} = null;")
+            elif f["type"] in ("bytes", "bytes_remaining"):
+                L.append(f"        {f['name']} = null;")
+            else:
+                L.append(f"        {f['name']} = default;")
+
+        L.append(f"        int offset = 0;")
+
+        # Pre-read size fields
+        size_fields = {f["name"] for f in fields if is_size_field(f, fields)}
+        for f in fields:
+            if f["name"] in size_fields:
+                L.append(f"        byte {f['name']} = payload[offset++];")
+
+        for f in fields:
+            if f["name"] in size_fields:
+                continue
+            for line in cs_deser_line(f, fields, "        "):
+                L.append(f"        {line}" if "    " not in line[:4] else line)
+
+        L.append(f"    }}")
+        L.append("")
+
+    L.append("}")
+    return "\n".join(L)
+
+def field_byte_size(f):
+    """Fixed byte size of a field, or 0 if variable."""
+    t = f["type"]
+    if t == "u8": return 1
+    if t == "u16_le": return 2
+    if t == "f32": return 4
+    return 0  # bytes, array, bytes_remaining
+
+def struct_byte_size(s):
+    """Total fixed byte size of a struct's fields."""
+    return sum(field_byte_size(f) for f in s.get("fields", []))
+
+# ── Main ──────────────────────────────────────────────────────────
+
+def main():
+    print("Peek-A-Boo Protocol Code Generator")
+    print(f"  Source: {DEFS_PATH}")
+
+    defs = load_defs()
+    print(f"  {len(defs['messages'])} messages, {len(defs['enums'])} enums, {len(defs.get('structs',[]))} structs")
+
+    cpp = gen_cpp(defs)
+    os.makedirs(os.path.dirname(CPP_OUT), exist_ok=True)
+    with open(CPP_OUT, "w", encoding="utf-8", newline="\n") as f:
+        f.write(cpp)
+    print(f"  -> C++: {CPP_OUT}")
+
+    cs = gen_cs(defs)
+    os.makedirs(os.path.dirname(CS_OUT), exist_ok=True)
+    with open(CS_OUT, "w", encoding="utf-8", newline="\n") as f:
+        f.write(cs)
+    print(f"  -> C#:  {CS_OUT}")
+
+    print("Done.")
+
+if __name__ == "__main__":
+    main()

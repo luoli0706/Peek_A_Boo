@@ -50,6 +50,8 @@ public class MenuController : MonoBehaviour
 
         if (statusText != null)
             statusText.text = "Connecting...";
+
+        NetworkManager.Instance.Connect();
     }
 
     void OnGameStateChanged(GameState state, ushort countdown)

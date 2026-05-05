@@ -23,10 +23,21 @@ public class NetworkManager : MonoBehaviour
     public event Action<RemotePlayerState[]> OnPlayerStates;
     public event Action<GameState, ushort> OnGameStateChange;
 
+    private bool enetReady;
+
+    void Awake()
+    {
+        if (Instance != null && Instance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
+        Instance = this;
+        DontDestroyOnLoad(gameObject);
+    }
+
     void Start()
     {
-        Instance = this;
-
         if (!ENet.Library.Initialize())
         {
             Debug.LogError("[Network] ENet.Library.Initialize() failed!");
@@ -36,7 +47,23 @@ public class NetworkManager : MonoBehaviour
 
         host = new ENet.Host();
         host.Create(1, 2); // client host: 1 peer, 2 channels (ch0=reliable, ch1=unreliable)
-        Debug.Log("[Network] Client host created");
+        enetReady = true;
+        Debug.Log("[Network] Client host created. Call Connect() to join server.");
+    }
+
+    public void Connect()
+    {
+        if (!enetReady || host == null || !host.IsSet)
+        {
+            Debug.LogError("[Network] Cannot connect: host not initialized");
+            return;
+        }
+
+        if (peer.IsSet)
+        {
+            peer.DisconnectNow(0);
+            peer = default(ENet.Peer);
+        }
 
         ENet.Address address = new ENet.Address();
         address.SetHost(serverIP);

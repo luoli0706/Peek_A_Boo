@@ -17,4 +17,6 @@ Assets/Plugins/ENet-CSharp/.git/
 Assets/Plugins/ENet-CSharp/Source/Native/build/
 server/deps/enet/.git/
 server/deps/enet/.github/
-Tools/
+Tools/*.msi
+Tools/*.exe
+Tools/*.zip

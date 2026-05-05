@@ -1,0 +1,179 @@
+{
+  "_comment": "Peek-A-Boo Protocol Definitions v1.0 — Single source of truth for all network messages. Run generate_protocol.py to produce C++ and C# code.",
+
+  "enums": [
+    {
+      "name": "GameState",
+      "type": "u8",
+      "values": [
+        "WaitingForPlayers",
+        "Preparing",
+        "Hiding",
+        "Seeking",
+        "RoundEnd",
+        "GameOver"
+      ]
+    },
+    {
+      "name": "PlayerRole",
+      "type": "u8",
+      "values": [
+        "Seeker",
+        "Hider",
+        "Spectator"
+      ]
+    },
+    {
+      "name": "PlayerState",
+      "type": "u8",
+      "cpp_only": true,
+      "values": [
+        "Normal",
+        "Crouching",
+        "Stunned",
+        "Caught"
+      ]
+    }
+  ],
+
+  "messages": [
+    {
+      "name": "JoinRoom",
+      "id": "0x01",
+      "direction": "client_to_server",
+      "channel": "reliable",
+      "doc": "Client sends player name after receiving Welcome",
+      "fields": [
+        {"name": "name_len", "type": "u8"},
+        {"name": "name", "type": "bytes", "size_ref": "name_len"}
+      ]
+    },
+    {
+      "name": "PlayerInput",
+      "id": "0x02",
+      "direction": "client_to_server",
+      "channel": "unreliable",
+      "doc": "Client sends input intent every frame (30Hz)",
+      "fields": [
+        {"name": "move_x", "type": "f32"},
+        {"name": "move_z", "type": "f32"},
+        {"name": "rot_y", "type": "f32"},
+        {"name": "flags", "type": "u8", "comment": "bit0=crouch, bit1=jump"}
+      ]
+    },
+    {
+      "name": "TagAttempt",
+      "id": "0x03",
+      "direction": "client_to_server",
+      "channel": "reliable",
+      "doc": "Seeker attempts to tag a nearby hider",
+      "fields": [
+        {"name": "target_id", "type": "u8"}
+      ]
+    },
+    {
+      "name": "PlayerReady",
+      "id": "0x04",
+      "direction": "client_to_server",
+      "channel": "reliable",
+      "doc": "Client signals ready in lobby",
+      "fields": []
+    },
+
+    {
+      "name": "Welcome",
+      "id": "0x10",
+      "direction": "server_to_client",
+      "channel": "reliable",
+      "doc": "Server assigns player ID and role on connect",
+      "fields": [
+        {"name": "player_id", "type": "u8"},
+        {"name": "role", "type": "u8", "enum": "PlayerRole"}
+      ]
+    },
+    {
+      "name": "GameStateChange",
+      "id": "0x11",
+      "direction": "server_to_client",
+      "channel": "reliable",
+      "doc": "Server broadcasts authoritative game state transitions",
+      "fields": [
+        {"name": "state", "type": "u8", "enum": "GameState"},
+        {"name": "countdown_sec", "type": "u16_le"}
+      ]
+    },
+    {
+      "name": "PlayerStates",
+      "id": "0x12",
+      "direction": "server_to_client",
+      "channel": "unreliable",
+      "doc": "Server broadcasts all player positions at tick rate (30Hz)",
+      "fields": [
+        {"name": "count", "type": "u8"},
+        {"name": "players", "type": "array", "element": "PlayerStateEntry", "count_ref": "count"}
+      ]
+    },
+    {
+      "name": "Highlight",
+      "id": "0x13",
+      "direction": "server_to_client",
+      "channel": "reliable",
+      "doc": "Server notifies a hider they are revealed (seeker nearby)",
+      "fields": [
+        {"name": "player_id", "type": "u8"}
+      ]
+    },
+    {
+      "name": "TagResult",
+      "id": "0x14",
+      "direction": "server_to_client",
+      "channel": "reliable",
+      "doc": "Server reports result of a tag attempt",
+      "fields": [
+        {"name": "seeker_id", "type": "u8"},
+        {"name": "target_id", "type": "u8"},
+        {"name": "success", "type": "u8", "comment": "0=fail, 1=success"}
+      ]
+    },
+    {
+      "name": "ScoreBoard",
+      "id": "0x15",
+      "direction": "server_to_client",
+      "channel": "reliable",
+      "doc": "Server sends round-end scoreboard as JSON",
+      "fields": [
+        {"name": "json", "type": "bytes_remaining"}
+      ]
+    },
+    {
+      "name": "Error",
+      "id": "0x16",
+      "direction": "server_to_client",
+      "channel": "reliable",
+      "doc": "Server sends error code",
+      "fields": [
+        {"name": "code", "type": "u8"}
+      ]
+    }
+  ],
+
+  "structs": [
+    {
+      "name": "PlayerStateEntry",
+      "doc": "Per-player state in PlayerStates broadcast",
+      "fields": [
+        {"name": "player_id", "type": "u8"},
+        {"name": "state", "type": "u8", "enum": "PlayerState"},
+        {"name": "pos_x", "type": "f32"},
+        {"name": "pos_z", "type": "f32"},
+        {"name": "rot_y", "type": "f32"}
+      ]
+    }
+  ],
+
+  "constants": {
+    "SERVER_TICK_STEP_MS": 33,
+    "SERVER_PORT": 9000,
+    "MAX_PLAYERS": 7
+  }
+}
