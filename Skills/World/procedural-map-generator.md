@@ -1,7 +1,7 @@
 # ProceduralMapGenerator
 
 **Script:** `Assets/Scripts/ProceduralMapGenerator.cs`
-**Status:** Phase 1 — Planned
+**Status:** Phase 1 — Active
 **Category:** World
 
 ## Purpose

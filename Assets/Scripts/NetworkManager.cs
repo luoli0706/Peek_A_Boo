@@ -2,8 +2,8 @@ using System;
 using System.Runtime.InteropServices;
 using UnityEngine;
 
-// Peek-A-Boo Phase 0 NetworkManager
-// Goal: Connect to C++ ENET server, send JoinRoom, log all received messages
+// Peek-A-Boo NetworkManager (Phase 1)
+// ENET client lifecycle, message dispatch, events for other systems
 public class NetworkManager : MonoBehaviour
 {
     [Header("Connection")]
@@ -13,13 +13,20 @@ public class NetworkManager : MonoBehaviour
 
     private ENet.Host host;
     private ENet.Peer peer;
-    private byte myPlayerId;
-    private byte myRole;
 
+    public static NetworkManager Instance { get; private set; }
+    public byte myPlayerId { get; private set; }
+    public byte myRole { get; private set; }
     public bool IsConnected => peer.IsSet;
+
+    // Events for other systems to subscribe
+    public event Action<RemotePlayerState[]> OnPlayerStates;
+    public event Action<GameState, ushort> OnGameStateChange;
 
     void Start()
     {
+        Instance = this;
+
         if (!ENet.Library.Initialize())
         {
             Debug.LogError("[Network] ENet.Library.Initialize() failed!");
@@ -96,7 +103,7 @@ public class NetworkManager : MonoBehaviour
                 break;
 
             case MsgType.PlayerStates:
-                // High-frequency — silent in Phase 0
+                OnPlayerStates?.Invoke(PlayerStatesDeserializer.Deserialize(payload));
                 break;
 
             case MsgType.Highlight:
@@ -144,6 +151,7 @@ public class NetworkManager : MonoBehaviour
     {
         ClientProtocol.DeserializeGameStateChange(payload, out byte state, out ushort countdown);
         Debug.Log($"[Network] GameState => {(GameState)state}, countdown={countdown}s");
+        OnGameStateChange?.Invoke((GameState)state, countdown);
     }
 
     void OnDisconnect(ENet.EventType type)

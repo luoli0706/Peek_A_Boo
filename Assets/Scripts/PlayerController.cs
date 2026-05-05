@@ -1,0 +1,94 @@
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+public class PlayerController : MonoBehaviour
+{
+    [Header("Movement")]
+    public float moveSpeed = 5.0f;
+    public float crouchSpeed = 2.0f;
+    public float mouseSensitivity = 2.0f;
+
+    [Header("References")]
+    public Transform cameraTransform;
+
+    private float cameraPitch;
+    private bool inputEnabled = true;
+    private Vector2 moveInput;
+    private bool crouchHeld;
+    private bool jumpTriggered;
+
+    void Start()
+    {
+        if (cameraTransform == null)
+            cameraTransform = GetComponentInChildren<Camera>()?.transform;
+
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
+    }
+
+    // Called by Unity Input System (PlayerInput component or manual binding)
+    public void OnMove(InputValue value)
+    {
+        if (!inputEnabled) { moveInput = Vector2.zero; return; }
+        moveInput = value.Get<Vector2>();
+    }
+
+    public void OnLook(InputValue value)
+    {
+        if (!inputEnabled) return;
+
+        Vector2 delta = value.Get<Vector2>() * mouseSensitivity * Time.deltaTime;
+
+        cameraPitch -= delta.y;
+        cameraPitch = Mathf.Clamp(cameraPitch, -89f, 89f);
+
+        if (cameraTransform != null)
+            cameraTransform.localRotation = Quaternion.Euler(cameraPitch, 0f, 0f);
+
+        transform.Rotate(Vector3.up, delta.x);
+    }
+
+    public void OnCrouch(InputValue value)
+    {
+        if (!inputEnabled) { crouchHeld = false; return; }
+        crouchHeld = value.isPressed;
+    }
+
+    public void OnJump(InputValue value)
+    {
+        if (!inputEnabled) { jumpTriggered = false; return; }
+        jumpTriggered = value.isPressed;
+    }
+
+    void Update()
+    {
+        if (!inputEnabled) return;
+
+        // Local movement
+        float speed = crouchHeld ? crouchSpeed : moveSpeed;
+        Vector3 move = new Vector3(moveInput.x, 0f, moveInput.y);
+        move = transform.TransformDirection(move) * speed * Time.deltaTime;
+        transform.position += move;
+
+        // Send input to server every frame
+        if (NetworkManager.Instance != null && NetworkManager.Instance.IsConnected)
+        {
+            float rotY = transform.eulerAngles.y;
+            byte[] data = ClientProtocol.SerializePlayerInput(
+                moveInput.x, moveInput.y, rotY, crouchHeld, jumpTriggered);
+            NetworkManager.Instance.Send(1, false, data); // ch1 unreliable
+        }
+
+        jumpTriggered = false;
+    }
+
+    public void EnableInput()  => inputEnabled = true;
+    public void DisableInput() => inputEnabled = false;
+
+    // Called when server sends authoritative position correction (Phase 3)
+    public void ApplyServerPosition(Vector3 position, float yaw)
+    {
+        transform.position = position;
+        transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+    }
+}

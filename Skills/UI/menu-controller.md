@@ -1,7 +1,7 @@
 # MenuController
 
 **Script:** `Assets/Scripts/MenuController.cs`
-**Status:** Phase 1 — Planned
+**Status:** Phase 1 — Active
 **Category:** UI
 
 ## Purpose

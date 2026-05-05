@@ -100,3 +100,41 @@ public static class ClientProtocol
         countdown = (ushort)(payload[1] | (payload[2] << 8));
     }
 }
+
+// Per-player state from server PlayerStates broadcast (0x12)
+public struct RemotePlayerState
+{
+    public byte playerId;
+    public byte state;    // PlayerState enum value
+    public float posX;
+    public float posZ;
+    public float rotY;
+}
+
+public static class PlayerStatesDeserializer
+{
+    // PlayerStates: [count:1] [per-player: id:1 state:1 x:4 z:4 yaw:4]
+    // Returns null if payload is malformed
+    public static RemotePlayerState[] Deserialize(byte[] payload)
+    {
+        if (payload == null || payload.Length < 1) return null;
+
+        int count = payload[0];
+        int expectedLen = 1 + count * 14; // id:1 state:1 x:4 z:4 yaw:4
+        if (payload.Length < expectedLen) return null;
+
+        RemotePlayerState[] states = new RemotePlayerState[count];
+        int offset = 1;
+
+        for (int i = 0; i < count; i++)
+        {
+            states[i].playerId = payload[offset]; offset += 1;
+            states[i].state    = payload[offset]; offset += 1;
+            states[i].posX     = System.BitConverter.ToSingle(payload, offset); offset += 4;
+            states[i].posZ     = System.BitConverter.ToSingle(payload, offset); offset += 4;
+            states[i].rotY     = System.BitConverter.ToSingle(payload, offset); offset += 4;
+        }
+
+        return states;
+    }
+}

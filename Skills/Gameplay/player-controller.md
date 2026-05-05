@@ -1,7 +1,7 @@
 # PlayerController
 
 **Script:** `Assets/Scripts/PlayerController.cs`
-**Status:** Phase 1 — Planned
+**Status:** Phase 1 — Active
 **Category:** Gameplay
 
 ## Purpose

@@ -1,7 +1,7 @@
 # LevelTimer
 
 **Script:** `Assets/Scripts/LevelTimer.cs`
-**Status:** Phase 1 — Planned
+**Status:** Phase 1 — Active
 **Category:** Core
 
 ## Purpose

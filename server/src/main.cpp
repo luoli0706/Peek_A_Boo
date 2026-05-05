@@ -1,27 +1,42 @@
 #include "enet.h"
-#include <cstdio>
-#include <cstring>
-#include <vector>
+#include "player.h"
 #include "types.h"
 #include "protocol.h"
-
-struct Player {
-    uint8_t id;
-    Role role;
-    bool connected;
-};
+#include <cstdio>
+#include <cstring>
+#include <cmath>
+#include <vector>
 
 static std::vector<Player> players;
 static uint8_t next_player_id = 0;
 
+static Player* find_player(ENetPeer* peer) {
+    for (auto& p : players) {
+        if (p.peer == peer) return &p;
+    }
+    return nullptr;
+}
+
 static void on_connect(ENetPeer* peer) {
     uint8_t id = next_player_id++;
-    uint8_t role = (id == 0) ? static_cast<uint8_t>(Role::Seeker) : static_cast<uint8_t>(Role::Hider);
+    Role role = (id == 0) ? Role::Seeker : Role::Hider;
 
-    players.push_back({id, static_cast<Role>(role), true});
+    Player p;
+    p.id = id;
+    p.role = role;
+    p.connected = true;
+    p.peer = peer;
+    p.pos_x = 0.0f;
+    p.pos_y = 0.0f;
+    p.pos_z = 0.0f;
+    p.rot_y = 0.0f;
+    p.state = PlayerState::Normal;
+    snprintf(p.name, sizeof(p.name), "Player%d", id);
 
-    send_welcome(peer, id, role);
-    printf("[+] Player %d connected (role=%d), total=%zu\n", id, role, players.size());
+    players.push_back(p);
+
+    send_welcome(peer, id, static_cast<uint8_t>(role));
+    printf("[+] Player %d connected (role=%d), total=%zu\n", id, static_cast<int>(role), players.size());
 }
 
 static void on_receive(ENetPeer* peer, const ENetPacket* packet) {
@@ -31,12 +46,30 @@ static void on_receive(ENetPeer* peer, const ENetPacket* packet) {
     switch (msg_type) {
         case MsgType::JoinRoom: {
             std::string name = read_string(packet->data + 1, packet->dataLength - 1);
-            printf("[<] JoinRoom from player: %s\n", name.c_str());
+            Player* p = find_player(peer);
+            if (p) {
+                strncpy(p->name, name.c_str(), sizeof(p->name) - 1);
+                p->name[sizeof(p->name) - 1] = '\0';
+            }
+            printf("[<] JoinRoom from: %s\n", name.c_str());
             break;
         }
-        case MsgType::PlayerInput:
-            // Silent — high-frequency, avoid log spam
+        case MsgType::PlayerInput: {
+            float mx, mz, ry;
+            uint8_t flags;
+            if (read_player_input(packet->data + 1, packet->dataLength - 1, mx, mz, ry, flags)) {
+                Player* p = find_player(peer);
+                if (p) {
+                    InputEntry in;
+                    in.move_x = mx;
+                    in.move_z = mz;
+                    in.rot_y = ry;
+                    in.flags = flags;
+                    p->input.push(in);
+                }
+            }
             break;
+        }
         case MsgType::PlayerReady:
             printf("[<] PlayerReady\n");
             break;
@@ -47,13 +80,18 @@ static void on_receive(ENetPeer* peer, const ENetPacket* packet) {
 }
 
 static void on_disconnect(ENetPeer* peer) {
-    // Find player by peer
-    (void)peer;
-    printf("[-] Player disconnected, total=%zu\n", players.size());
+    Player* p = find_player(peer);
+    if (p) {
+        printf("[-] Player %d (%s) disconnected, total=%zu\n", p->id, p->name, players.size());
+        p->connected = false;
+        p->peer = nullptr;
+    } else {
+        printf("[-] Unknown peer disconnected\n");
+    }
 }
 
 int main() {
-    printf("=== Peek-A-Boo Server v3.0 (ENET) ===\n");
+    printf("=== Peek-A-Boo Server v3.1 (ENET) ===\n");
 
     if (enet_initialize() != 0) {
         fprintf(stderr, "FATAL: enet_initialize() failed\n");
@@ -73,19 +111,52 @@ int main() {
 
     printf("Server listening on UDP port %d (max %d players, %d channels)\n",
            SERVER_PORT, MAX_PLAYERS, ENET_CHANNELS);
-    printf("ch0 = reliable (events), ch1 = unreliable (position snapshots)\n");
+    printf("ch0 = reliable (events), ch1 = unreliable (%dHz position snapshots)\n", 1000 / SERVER_TICK_STEP_MS);
     printf("Waiting for connections...\n\n");
 
     ENetEvent event;
+    uint32_t accumulator = 0;
     uint32_t last_tick = enet_time_get();
 
+    const float MOVE_SPEED = 5.0f;
+    const float ROT_SPEED  = 180.0f;
+    const float PI = 3.14159265f;
+
     while (true) {
-        int ret = enet_host_service(host, &event, 50); // 50ms timeout = 20Hz tick
+        int ret = enet_host_service(host, &event, 1);
 
         uint32_t now = enet_time_get();
-        if (now - last_tick >= SERVER_TICK_MS) {
-            // 20Hz tick — broadcast PlayerStates etc. (Phase 1)
-            last_tick = now;
+        uint32_t delta = now - last_tick;
+        last_tick = now;
+        accumulator += delta;
+
+        while (accumulator >= SERVER_TICK_STEP_MS) {
+            accumulator -= SERVER_TICK_STEP_MS;
+            float dt = SERVER_TICK_STEP_MS / 1000.0f;
+
+            for (auto& p : players) {
+                if (!p.connected || p.peer == nullptr) continue;
+
+                const InputEntry* input = p.input.latest();
+                p.input.clear();
+
+                if (input) {
+                    p.rot_y += input->rot_y * ROT_SPEED * dt;
+
+                    float rad = p.rot_y * PI / 180.0f;
+                    float fx = sinf(rad);
+                    float fz = cosf(rad);
+                    float rx = cosf(rad);
+                    float rz = -sinf(rad);
+
+                    p.pos_x += (input->move_x * rx + input->move_z * fx) * MOVE_SPEED * dt;
+                    p.pos_z += (input->move_x * rz + input->move_z * fz) * MOVE_SPEED * dt;
+
+                    p.state = (input->flags & INPUT_FLAG_CROUCH) ? PlayerState::Crouching : PlayerState::Normal;
+                }
+            }
+
+            send_player_states(host, players.data(), players.size());
         }
 
         if (ret > 0) {

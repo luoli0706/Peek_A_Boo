@@ -1,7 +1,7 @@
 # GameManager
 
 **Script:** `Assets/Scripts/GameManager.cs`
-**Status:** Phase 1 — Planned
+**Status:** Phase 1 — Active
 **Category:** Core
 
 ## Purpose
