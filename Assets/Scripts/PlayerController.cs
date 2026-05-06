@@ -4,29 +4,34 @@ using UnityEngine.InputSystem;
 public class PlayerController : MonoBehaviour
 {
     [Header("Movement")]
-    public float moveSpeed = 5.0f;
-    public float crouchSpeed = 2.0f;
-    public float mouseSensitivity = 0.3f;
+    public float moveSpeed = 5f;
+    public float lookSensitivity = 0.5f;
 
-    [Header("References")]
-    public Transform cameraTransform;
+    [Header("Camera")]
+    public Camera playerCamera;
 
-    private float cameraPitch;
-    private bool inputEnabled = false;
     private Vector2 moveInput;
-    private Vector2 lookDelta;
+    private Vector2 lookInput;
+    private bool isLocked = true;
     private bool crouchHeld;
     private bool jumpTriggered;
+    private float xRotation;
 
     void Start()
     {
-        if (cameraTransform == null)
-            cameraTransform = GetComponentInChildren<Camera>()?.transform;
+        if (playerCamera == null)
+            playerCamera = GetComponentInChildren<Camera>();
 
-        Debug.Log($"[PlayerCtrl] Start camera={cameraTransform?.name ?? "NULL"}");
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
+
+        // Start locked until GameManager enables us
+        isLocked = true;
 
         if (GameManager.Instance != null)
             GameManager.Instance.OnStateChanged += OnGameStateChanged;
+
+        Debug.Log($"[PlayerCtrl] Start camera={playerCamera?.name ?? "NULL"}");
     }
 
     void OnDestroy()
@@ -44,58 +49,49 @@ public class PlayerController : MonoBehaviour
             case GameState.Hiding:
             case GameState.Seeking:
             case GameState.RoundEnd:
-                EnableInput();
+                isLocked = false;
                 break;
             case GameState.GameOver:
-                DisableInput();
+                isLocked = true;
                 break;
         }
     }
 
-    // Called by PlayerInput (SendMessages) — always caches input, Update() gates application
+    // ── Called by PlayerInput (SendMessages) ──
+
     public void OnMove(InputValue value)
     {
+        if (isLocked) return;
         moveInput = value.Get<Vector2>();
     }
 
     public void OnLook(InputValue value)
     {
-        lookDelta = value.Get<Vector2>();
+        if (isLocked) return;
+        lookInput = value.Get<Vector2>();
     }
 
     public void OnJump(InputValue value)
     {
+        if (isLocked) return;
         if (value.isPressed) jumpTriggered = true;
     }
 
     public void OnCrouch(InputValue value)
     {
+        if (isLocked) return;
         crouchHeld = value.isPressed;
     }
 
+    // ── Update ──
+
     void Update()
     {
-        if (!inputEnabled) return;
-
-        // Apply mouse look
-        if (lookDelta.sqrMagnitude > 0.0001f)
+        if (!isLocked)
         {
-            Vector2 delta = lookDelta * mouseSensitivity;
-
-            cameraPitch -= delta.y;
-            cameraPitch = Mathf.Clamp(cameraPitch, -89f, 89f);
-
-            if (cameraTransform != null)
-                cameraTransform.localRotation = Quaternion.Euler(cameraPitch, 0f, 0f);
-
-            transform.Rotate(Vector3.up, delta.x);
+            HandleRotation();
+            HandleMovement();
         }
-
-        // Apply movement
-        float speed = crouchHeld ? crouchSpeed : moveSpeed;
-        Vector3 move = new Vector3(moveInput.x, 0f, moveInput.y);
-        move = transform.TransformDirection(move) * speed * Time.deltaTime;
-        transform.position += move;
 
         // Send input to server
         if (NetworkManager.Instance != null && NetworkManager.Instance.IsConnected)
@@ -109,19 +105,24 @@ public class PlayerController : MonoBehaviour
         jumpTriggered = false;
     }
 
-    public void EnableInput()
+    void HandleRotation()
     {
-        inputEnabled = true;
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
-        Debug.Log("[PlayerCtrl] Input enabled");
+        if (playerCamera == null) return;
+
+        float mouseX = lookInput.x * lookSensitivity;
+        float mouseY = lookInput.y * lookSensitivity;
+
+        transform.Rotate(Vector3.up * mouseX);
+
+        xRotation -= mouseY;
+        xRotation = Mathf.Clamp(xRotation, -90f, 90f);
+        playerCamera.transform.localRotation = Quaternion.Euler(xRotation, 0f, 0f);
     }
 
-    public void DisableInput()
+    void HandleMovement()
     {
-        inputEnabled = false;
-        Cursor.lockState = CursorLockMode.None;
-        Cursor.visible = true;
+        Vector3 move = transform.right * moveInput.x + transform.forward * moveInput.y;
+        transform.position += move * moveSpeed * Time.deltaTime;
     }
 
     public void ApplyServerPosition(Vector3 position, float yaw)
