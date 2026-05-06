@@ -52,6 +52,9 @@ static void on_receive(ENetPeer* peer, const ENetPacket* packet) {
                 p->name[sizeof(p->name) - 1] = '\0';
             }
             printf("[<] JoinRoom from: %s\n", name.c_str());
+
+            // Send current game state to the connecting player
+            send_game_state_change(peer, static_cast<uint8_t>(GameState::WaitingForPlayers), 0);
             break;
         }
         case MsgType::PlayerInput: {
