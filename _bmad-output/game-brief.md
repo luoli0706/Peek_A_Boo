@@ -16,9 +16,9 @@ game_name: 'Peek-A-Boo（躲猫猫）'
 
 # Game Brief: Peek-A-Boo（躲猫猫）
 
-**Date:** {{date}}
-**Author:** {{user_name}}
-**Status:** Draft for GDD Development
+**Date:** 2026-05-06
+**Author:** Master
+**Status:** Phase 1 Complete — Client playable (connect, move, look, jump, collide)
 
 ---
 

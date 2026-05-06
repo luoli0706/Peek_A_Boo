@@ -1,16 +1,17 @@
 # Peek-A-Boo（躲猫猫）— 游戏蓝图
 
-**版本：** v3.1（Phase 0 完成 + Phase 1 计划）
-**日期：** 2026-05-05
+**版本：** v3.2（Phase 1 完成——客户端已可连接、移动、碰撞）
+**日期：** 2026-05-06
 **引擎：** Unity 6.3 LTS（URP / FPS 模板）
 **类型：** PVP 第一人称躲猫猫 / 派对游戏
 
-> v3.1：Phase 0 完成——C++ ENET 服务端与 Unity 客户端通过 ENet-CSharp 源码互通。Blueprint 更新了实际工具链（WinLibs 独立 MinGW）、ENET API 差异（6参数/address.ipv6）、以及 Phase 1 详细任务分解。新增 Skills/ 目录用于脚本技能注册。
+> v3.2：Phase 1 客户端实现完成——PlayerController（WASD移动+鼠标视角+跳跃+碰撞）、GameManager状态机、LevelTimer计时器、MenuController主菜单+HUD、RemotePlayerManager远程玩家同步、ProceduralMapGenerator程序化地图。新增协议代码生成器 Tools/generate_protocol.py。修复连接流程（Connect() 显式调用）、光标管理（菜单解锁/游戏中锁定）、Input System 集成（SendMessages + InputSystem_Actions）。
 
 ### 版本日志
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
+| v3.2 | 2026-05-06 | Phase 1 完成：7个客户端脚本调试通过，协议代码生成器，Input System 集成 |
 | v3.1 | 2026-05-05 | Phase 0 完成，工具链修正为 WinLibs MinGW 独立安装，ENet-CSharp 单文件源码编译，Skills/ 技能注册体系建立 |
 | v3.0 | 2026-05-02 | 架构迁移：WebSocket→ENET UDP，C++17→C++20，新增 BluePrint 文档 |
 | v2.0 | — | uWebSockets/WebSocket 方案（已废弃） |
