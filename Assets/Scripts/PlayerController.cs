@@ -22,10 +22,7 @@ public class PlayerController : MonoBehaviour
         if (playerCamera == null)
             playerCamera = GetComponentInChildren<Camera>();
 
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
-
-        // Start locked until GameManager enables us
+        // Cursor free on main menu, locked during gameplay
         isLocked = true;
 
         if (GameManager.Instance != null)
@@ -50,9 +47,13 @@ public class PlayerController : MonoBehaviour
             case GameState.Seeking:
             case GameState.RoundEnd:
                 isLocked = false;
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
                 break;
             case GameState.GameOver:
                 isLocked = true;
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
                 break;
         }
     }
