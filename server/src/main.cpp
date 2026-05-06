@@ -77,7 +77,8 @@ static void on_receive(ENetPeer* peer, const ENetPacket* packet) {
             printf("[<] PlayerReady\n");
             break;
         default:
-            printf("[?] Unknown msg_type=0x%02X, len=%zu\n", msg_type, packet->dataLength);
+                 printf("[?] Unknown msg_type=0x%02X, len=%zu\n", msg_type,
+                     static_cast<size_t>(packet->dataLength));
             break;
     }
 }
