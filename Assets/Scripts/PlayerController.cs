@@ -21,9 +21,6 @@ public class PlayerController : MonoBehaviour
     {
         if (cameraTransform == null)
             cameraTransform = GetComponentInChildren<Camera>()?.transform;
-
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
     }
 
     // Called by Unity Input System (PlayerInput component or manual binding)
@@ -82,8 +79,19 @@ public class PlayerController : MonoBehaviour
         jumpTriggered = false;
     }
 
-    public void EnableInput()  => inputEnabled = true;
-    public void DisableInput() => inputEnabled = false;
+    public void EnableInput()
+    {
+        inputEnabled = true;
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
+    }
+
+    public void DisableInput()
+    {
+        inputEnabled = false;
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+    }
 
     // Called when server sends authoritative position correction (Phase 3)
     public void ApplyServerPosition(Vector3 position, float yaw)
