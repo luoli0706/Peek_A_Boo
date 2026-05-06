@@ -6,6 +6,8 @@ public class PlayerController : MonoBehaviour
     [Header("Movement")]
     public float moveSpeed = 5f;
     public float lookSensitivity = 0.5f;
+    public float jumpForce = 5f;
+    public float gravity = -15f;
 
     [Header("Camera")]
     public Camera playerCamera;
@@ -16,6 +18,8 @@ public class PlayerController : MonoBehaviour
     private bool crouchHeld;
     private bool jumpTriggered;
     private float xRotation;
+    private float verticalVelocity;
+    private float groundY;
 
     void Start()
     {
@@ -27,11 +31,12 @@ public class PlayerController : MonoBehaviour
             Debug.LogError("[PlayerCtrl] No camera found! Add Camera as child or tag as MainCamera.");
 
         isLocked = true;
+        groundY = transform.position.y;
 
         if (GameManager.Instance != null)
             GameManager.Instance.OnStateChanged += OnGameStateChanged;
 
-        Debug.Log($"[PlayerCtrl] Start camera={playerCamera?.name ?? "NULL"}");
+        Debug.Log($"[PlayerCtrl] Start camera={playerCamera?.name ?? "NULL"}, groundY={groundY}");
     }
 
     void OnDestroy()
@@ -125,8 +130,25 @@ public class PlayerController : MonoBehaviour
 
     void HandleMovement()
     {
+        // Horizontal movement
         Vector3 move = transform.right * moveInput.x + transform.forward * moveInput.y;
         transform.position += move * moveSpeed * Time.deltaTime;
+
+        // Vertical jump / gravity
+        if (jumpTriggered && Mathf.Abs(transform.position.y - groundY) < 0.1f)
+        {
+            verticalVelocity = jumpForce;
+        }
+
+        verticalVelocity += gravity * Time.deltaTime;
+        transform.position += Vector3.up * verticalVelocity * Time.deltaTime;
+
+        // Ground clamp
+        if (transform.position.y < groundY)
+        {
+            transform.position = new Vector3(transform.position.x, groundY, transform.position.z);
+            verticalVelocity = 0f;
+        }
     }
 
     public void ApplyServerPosition(Vector3 position, float yaw)
