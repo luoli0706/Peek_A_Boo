@@ -12,7 +12,7 @@ public class PlayerController : MonoBehaviour
     public Transform cameraTransform;
 
     private float cameraPitch;
-    private bool inputEnabled = true;
+    private bool inputEnabled = false;
     private Vector2 moveInput;
     private bool crouchHeld;
     private bool jumpTriggered;
@@ -21,6 +21,32 @@ public class PlayerController : MonoBehaviour
     {
         if (cameraTransform == null)
             cameraTransform = GetComponentInChildren<Camera>()?.transform;
+
+        if (GameManager.Instance != null)
+            GameManager.Instance.OnStateChanged += OnGameStateChanged;
+    }
+
+    void OnDestroy()
+    {
+        if (GameManager.Instance != null)
+            GameManager.Instance.OnStateChanged -= OnGameStateChanged;
+    }
+
+    void OnGameStateChanged(GameState state, ushort countdown)
+    {
+        switch (state)
+        {
+            case GameState.WaitingForPlayers:
+            case GameState.Preparing:
+            case GameState.Hiding:
+            case GameState.Seeking:
+            case GameState.RoundEnd:
+                EnableInput();
+                break;
+            case GameState.GameOver:
+                DisableInput();
+                break;
+        }
     }
 
     // Called by Unity Input System (PlayerInput component or manual binding)
