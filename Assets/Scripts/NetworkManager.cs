@@ -158,7 +158,9 @@ public class NetworkManager : MonoBehaviour
 
     void HandleWelcome(byte[] payload)
     {
-        ClientProtocol.DeserializeWelcome(payload, out myPlayerId, out myRole);
+        ClientProtocol.DeserializeWelcome(payload, out byte playerId, out byte role);
+        myPlayerId = playerId;
+        myRole = role;
         string roleName = (PlayerRole)myRole switch
         {
             PlayerRole.Seeker => "Seeker",
