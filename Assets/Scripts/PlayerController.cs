@@ -21,8 +21,11 @@ public class PlayerController : MonoBehaviour
     {
         if (playerCamera == null)
             playerCamera = GetComponentInChildren<Camera>();
+        if (playerCamera == null)
+            playerCamera = Camera.main;
+        if (playerCamera == null)
+            Debug.LogError("[PlayerCtrl] No camera found! Add Camera as child or tag as MainCamera.");
 
-        // Cursor free on main menu, locked during gameplay
         isLocked = true;
 
         if (GameManager.Instance != null)
