@@ -49,18 +49,18 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-    // Called by Unity Input System (PlayerInput component or manual binding)
-    public void OnMove(InputValue value)
+    // Called by Unity Input System (PlayerInput Invoke Unity Events uses CallbackContext)
+    public void OnMove(InputAction.CallbackContext ctx)
     {
         if (!inputEnabled) { moveInput = Vector2.zero; return; }
-        moveInput = value.Get<Vector2>();
+        moveInput = ctx.ReadValue<Vector2>();
     }
 
-    public void OnLook(InputValue value)
+    public void OnLook(InputAction.CallbackContext ctx)
     {
         if (!inputEnabled) return;
 
-        Vector2 delta = value.Get<Vector2>() * mouseSensitivity * Time.deltaTime;
+        Vector2 delta = ctx.ReadValue<Vector2>() * mouseSensitivity * Time.deltaTime;
 
         cameraPitch -= delta.y;
         cameraPitch = Mathf.Clamp(cameraPitch, -89f, 89f);
@@ -71,16 +71,16 @@ public class PlayerController : MonoBehaviour
         transform.Rotate(Vector3.up, delta.x);
     }
 
-    public void OnCrouch(InputValue value)
+    public void OnCrouch(InputAction.CallbackContext ctx)
     {
         if (!inputEnabled) { crouchHeld = false; return; }
-        crouchHeld = value.isPressed;
+        crouchHeld = ctx.ReadValueAsButton();
     }
 
-    public void OnJump(InputValue value)
+    public void OnJump(InputAction.CallbackContext ctx)
     {
         if (!inputEnabled) { jumpTriggered = false; return; }
-        jumpTriggered = value.isPressed;
+        if (ctx.performed) jumpTriggered = true;
     }
 
     void Update()
