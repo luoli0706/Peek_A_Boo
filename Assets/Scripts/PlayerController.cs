@@ -17,11 +17,16 @@ public class PlayerController : MonoBehaviour
     private bool crouchHeld;
     private bool jumpTriggered;
 
+    private float debugLogTimer;
+    private int moveCallCount;
+    private int lookCallCount;
+
     void Start()
     {
         if (cameraTransform == null)
             cameraTransform = GetComponentInChildren<Camera>()?.transform;
 
+        Debug.Log($"[PlayerCtrl] Start — camera={cameraTransform?.name ?? "NULL"}, GameManager={GameManager.Instance != null}");
         if (GameManager.Instance != null)
             GameManager.Instance.OnStateChanged += OnGameStateChanged;
     }
@@ -34,6 +39,7 @@ public class PlayerController : MonoBehaviour
 
     void OnGameStateChanged(GameState state, ushort countdown)
     {
+        Debug.Log($"[PlayerCtrl] OnGameStateChanged: {state}, countdown={countdown}");
         switch (state)
         {
             case GameState.WaitingForPlayers:
@@ -49,15 +55,22 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-    // Called by Unity Input System (PlayerInput Invoke Unity Events uses CallbackContext)
     public void OnMove(InputAction.CallbackContext ctx)
     {
+        if (moveCallCount < 5)
+            Debug.Log($"[PlayerCtrl] OnMove called — phase={ctx.phase}, value={ctx.ReadValue<Vector2>()}, inputEnabled={inputEnabled}");
+        moveCallCount++;
+
         if (!inputEnabled) { moveInput = Vector2.zero; return; }
         moveInput = ctx.ReadValue<Vector2>();
     }
 
     public void OnLook(InputAction.CallbackContext ctx)
     {
+        if (lookCallCount < 5)
+            Debug.Log($"[PlayerCtrl] OnLook called — phase={ctx.phase}, value={ctx.ReadValue<Vector2>()}, inputEnabled={inputEnabled}");
+        lookCallCount++;
+
         if (!inputEnabled) return;
 
         Vector2 delta = ctx.ReadValue<Vector2>() * mouseSensitivity * Time.deltaTime;
@@ -73,18 +86,27 @@ public class PlayerController : MonoBehaviour
 
     public void OnCrouch(InputAction.CallbackContext ctx)
     {
+        Debug.Log($"[PlayerCtrl] OnCrouch called — phase={ctx.phase}, inputEnabled={inputEnabled}");
         if (!inputEnabled) { crouchHeld = false; return; }
         crouchHeld = ctx.ReadValueAsButton();
     }
 
     public void OnJump(InputAction.CallbackContext ctx)
     {
+        Debug.Log($"[PlayerCtrl] OnJump called — phase={ctx.phase}, inputEnabled={inputEnabled}");
         if (!inputEnabled) { jumpTriggered = false; return; }
         if (ctx.performed) jumpTriggered = true;
     }
 
     void Update()
     {
+        debugLogTimer -= Time.deltaTime;
+        if (debugLogTimer <= 0f)
+        {
+            debugLogTimer = 1f;
+            Debug.Log($"[PlayerCtrl] Update — inputEnabled={inputEnabled}, moveInput={moveInput}, pos={transform.position}");
+        }
+
         if (!inputEnabled) return;
 
         // Local movement
