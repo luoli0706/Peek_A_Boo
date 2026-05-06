@@ -78,10 +78,9 @@ public class PlayerController : MonoBehaviour
 
     void OnLook(InputAction.CallbackContext ctx)
     {
-        Debug.Log($"[PlayerCtrl] OnLook — phase={ctx.phase}, val={ctx.ReadValue<Vector2>()}");
         if (!inputEnabled) return;
 
-        Vector2 delta = ctx.ReadValue<Vector2>() * mouseSensitivity * Time.deltaTime;
+        Vector2 delta = ctx.ReadValue<Vector2>() * mouseSensitivity * 0.05f;
 
         cameraPitch -= delta.y;
         cameraPitch = Mathf.Clamp(cameraPitch, -89f, 89f);
