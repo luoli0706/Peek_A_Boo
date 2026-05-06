@@ -6,7 +6,7 @@ public class PlayerController : MonoBehaviour
     [Header("Movement")]
     public float moveSpeed = 5.0f;
     public float crouchSpeed = 2.0f;
-    public float mouseSensitivity = 2.0f;
+    public float mouseSensitivity = 0.3f;
 
     [Header("References")]
     public Transform cameraTransform;
@@ -24,20 +24,18 @@ public class PlayerController : MonoBehaviour
         if (cameraTransform == null)
             cameraTransform = GetComponentInChildren<Camera>()?.transform;
 
-        Debug.Log($"[PlayerCtrl] Start — camera={cameraTransform?.name ?? "NULL"}, GameManager={GameManager.Instance != null}");
+        Debug.Log($"[PlayerCtrl] Start camera={cameraTransform?.name ?? "NULL"}");
 
-        // Bypass PlayerInput component — subscribe directly to generated actions
         controls = new PlayControls();
-        controls.Player.Move.performed += OnMove;
-        controls.Player.Move.canceled += OnMove;
-        controls.Player.Look.performed += OnLook;
-        controls.Player.Look.canceled += OnLook;
+        controls.Player.Enable();
+
+        // Button actions still use events (one-shot triggers)
         controls.Player.Crouch.performed += OnCrouch;
         controls.Player.Crouch.canceled += OnCrouch;
         controls.Player.Jump.performed += OnJump;
         controls.Player.Jump.canceled += OnJump;
-        controls.Player.Enable();
-        Debug.Log("[PlayerCtrl] PlayControls action map enabled");
+
+        Debug.Log("[PlayerCtrl] Input actions enabled");
 
         if (GameManager.Instance != null)
             GameManager.Instance.OnStateChanged += OnGameStateChanged;
@@ -52,7 +50,7 @@ public class PlayerController : MonoBehaviour
 
     void OnGameStateChanged(GameState state, ushort countdown)
     {
-        Debug.Log($"[PlayerCtrl] OnGameStateChanged: {state}, countdown={countdown}");
+        Debug.Log($"[PlayerCtrl] State={state}");
         switch (state)
         {
             case GameState.WaitingForPlayers:
@@ -68,48 +66,26 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-    void OnMove(InputAction.CallbackContext ctx)
-    {
-        // Event kept for debug; actual movement uses controls.Player.Move.ReadValue in Update()
-        Debug.Log($"[PlayerCtrl] OnMove — phase={ctx.phase}, val={ctx.ReadValue<Vector2>()}");
-    }
-
-    void OnLook(InputAction.CallbackContext ctx)
-    {
-        Debug.Log($"[PlayerCtrl] OnLook — phase={ctx.phase}, val={ctx.ReadValue<Vector2>()}");
-        if (!inputEnabled) return;
-
-        Vector2 delta = ctx.ReadValue<Vector2>() * mouseSensitivity * 0.05f;
-
-        cameraPitch -= delta.y;
-        cameraPitch = Mathf.Clamp(cameraPitch, -89f, 89f);
-
-        if (cameraTransform != null)
-            cameraTransform.localRotation = Quaternion.Euler(cameraPitch, 0f, 0f);
-
-        transform.Rotate(Vector3.up, delta.x);
-    }
-
-    void OnCrouch(InputAction.CallbackContext ctx)
-    {
-        Debug.Log($"[PlayerCtrl] OnCrouch — phase={ctx.phase}");
-        if (!inputEnabled) { crouchHeld = false; return; }
-        crouchHeld = ctx.ReadValueAsButton();
-    }
-
-    void OnJump(InputAction.CallbackContext ctx)
-    {
-        Debug.Log($"[PlayerCtrl] OnJump — phase={ctx.phase}");
-        if (!inputEnabled) { jumpTriggered = false; return; }
-        if (ctx.performed) jumpTriggered = true;
-    }
-
     void Update()
     {
         if (!inputEnabled) return;
 
-        // Poll current input directly — events only fire on change, held keys need polling
+        // Poll Move and Look directly — events don't fire every frame for held keys / continuous mouse
         moveInput = controls.Player.Move.ReadValue<Vector2>();
+        Vector2 lookDelta = controls.Player.Look.ReadValue<Vector2>();
+
+        if (lookDelta.sqrMagnitude > 0.01f)
+        {
+            lookDelta *= mouseSensitivity;
+
+            cameraPitch -= lookDelta.y;
+            cameraPitch = Mathf.Clamp(cameraPitch, -89f, 89f);
+
+            if (cameraTransform != null)
+                cameraTransform.localRotation = Quaternion.Euler(cameraPitch, 0f, 0f);
+
+            transform.Rotate(Vector3.up, lookDelta.x);
+        }
 
         // Local movement
         float speed = crouchHeld ? crouchSpeed : moveSpeed;
@@ -123,10 +99,22 @@ public class PlayerController : MonoBehaviour
             float rotY = transform.eulerAngles.y;
             byte[] data = ClientProtocol.SerializePlayerInput(
                 moveInput.x, moveInput.y, rotY, crouchHeld, jumpTriggered);
-            NetworkManager.Instance.Send(1, false, data); // ch1 unreliable
+            NetworkManager.Instance.Send(1, false, data);
         }
 
         jumpTriggered = false;
+    }
+
+    void OnCrouch(InputAction.CallbackContext ctx)
+    {
+        if (!inputEnabled) { crouchHeld = false; return; }
+        crouchHeld = ctx.ReadValueAsButton();
+    }
+
+    void OnJump(InputAction.CallbackContext ctx)
+    {
+        if (!inputEnabled) { jumpTriggered = false; return; }
+        if (ctx.performed) jumpTriggered = true;
     }
 
     public void EnableInput()
@@ -134,6 +122,7 @@ public class PlayerController : MonoBehaviour
         inputEnabled = true;
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
+        Debug.Log("[PlayerCtrl] Input enabled, cursor locked");
     }
 
     public void DisableInput()
@@ -143,7 +132,6 @@ public class PlayerController : MonoBehaviour
         Cursor.visible = true;
     }
 
-    // Called when server sends authoritative position correction (Phase 3)
     public void ApplyServerPosition(Vector3 position, float yaw)
     {
         transform.position = position;
