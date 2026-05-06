@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 
+[RequireComponent(typeof(CharacterController))]
 public class PlayerController : MonoBehaviour
 {
     [Header("Movement")]
@@ -12,6 +13,7 @@ public class PlayerController : MonoBehaviour
     [Header("Camera")]
     public Camera playerCamera;
 
+    private CharacterController controller;
     private Vector2 moveInput;
     private Vector2 lookInput;
     private bool isLocked = true;
@@ -19,24 +21,24 @@ public class PlayerController : MonoBehaviour
     private bool jumpTriggered;
     private float xRotation;
     private float verticalVelocity;
-    private float groundY;
 
     void Start()
     {
+        controller = GetComponent<CharacterController>();
+
         if (playerCamera == null)
             playerCamera = GetComponentInChildren<Camera>();
         if (playerCamera == null)
             playerCamera = Camera.main;
         if (playerCamera == null)
-            Debug.LogError("[PlayerCtrl] No camera found! Add Camera as child or tag as MainCamera.");
+            Debug.LogError("[PlayerCtrl] No camera found!");
 
         isLocked = true;
-        groundY = transform.position.y;
 
         if (GameManager.Instance != null)
             GameManager.Instance.OnStateChanged += OnGameStateChanged;
 
-        Debug.Log($"[PlayerCtrl] Start camera={playerCamera?.name ?? "NULL"}, groundY={groundY}");
+        Debug.Log($"[PlayerCtrl] Start camera={playerCamera?.name ?? "NULL"}");
     }
 
     void OnDestroy()
@@ -102,7 +104,6 @@ public class PlayerController : MonoBehaviour
             HandleMovement();
         }
 
-        // Send input to server
         if (NetworkManager.Instance != null && NetworkManager.Instance.IsConnected)
         {
             float rotY = transform.eulerAngles.y;
@@ -130,25 +131,25 @@ public class PlayerController : MonoBehaviour
 
     void HandleMovement()
     {
-        // Horizontal movement
-        Vector3 move = transform.right * moveInput.x + transform.forward * moveInput.y;
-        transform.position += move * moveSpeed * Time.deltaTime;
-
-        // Vertical jump / gravity
-        if (jumpTriggered && Mathf.Abs(transform.position.y - groundY) < 0.1f)
+        // Jump
+        if (jumpTriggered && controller.isGrounded)
         {
             verticalVelocity = jumpForce;
         }
 
-        verticalVelocity += gravity * Time.deltaTime;
-        transform.position += Vector3.up * verticalVelocity * Time.deltaTime;
-
-        // Ground clamp
-        if (transform.position.y < groundY)
+        // Gravity
+        if (controller.isGrounded && verticalVelocity < 0f)
         {
-            transform.position = new Vector3(transform.position.x, groundY, transform.position.z);
-            verticalVelocity = 0f;
+            verticalVelocity = -2f; // small downward force to stay grounded
         }
+        verticalVelocity += gravity * Time.deltaTime;
+
+        // Combine horizontal + vertical movement
+        Vector3 move = transform.right * moveInput.x + transform.forward * moveInput.y;
+        move *= moveSpeed;
+        move.y = verticalVelocity;
+
+        controller.Move(move * Time.deltaTime);
     }
 
     public void ApplyServerPosition(Vector3 position, float yaw)
