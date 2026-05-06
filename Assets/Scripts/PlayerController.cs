@@ -17,9 +17,8 @@ public class PlayerController : MonoBehaviour
     private bool crouchHeld;
     private bool jumpTriggered;
 
+    private PlayControls controls;
     private float debugLogTimer;
-    private int moveCallCount;
-    private int lookCallCount;
 
     void Start()
     {
@@ -27,6 +26,20 @@ public class PlayerController : MonoBehaviour
             cameraTransform = GetComponentInChildren<Camera>()?.transform;
 
         Debug.Log($"[PlayerCtrl] Start — camera={cameraTransform?.name ?? "NULL"}, GameManager={GameManager.Instance != null}");
+
+        // Bypass PlayerInput component — subscribe directly to generated actions
+        controls = new PlayControls();
+        controls.Player.Move.performed += OnMove;
+        controls.Player.Move.canceled += OnMove;
+        controls.Player.Look.performed += OnLook;
+        controls.Player.Look.canceled += OnLook;
+        controls.Player.Crouch.performed += OnCrouch;
+        controls.Player.Crouch.canceled += OnCrouch;
+        controls.Player.Jump.performed += OnJump;
+        controls.Player.Jump.canceled += OnJump;
+        controls.Player.Enable();
+        Debug.Log("[PlayerCtrl] PlayControls action map enabled");
+
         if (GameManager.Instance != null)
             GameManager.Instance.OnStateChanged += OnGameStateChanged;
     }
@@ -35,6 +48,7 @@ public class PlayerController : MonoBehaviour
     {
         if (GameManager.Instance != null)
             GameManager.Instance.OnStateChanged -= OnGameStateChanged;
+        controls?.Dispose();
     }
 
     void OnGameStateChanged(GameState state, ushort countdown)
@@ -55,22 +69,16 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-    public void OnMove(InputAction.CallbackContext ctx)
+    void OnMove(InputAction.CallbackContext ctx)
     {
-        if (moveCallCount < 5)
-            Debug.Log($"[PlayerCtrl] OnMove called — phase={ctx.phase}, value={ctx.ReadValue<Vector2>()}, inputEnabled={inputEnabled}");
-        moveCallCount++;
-
+        Debug.Log($"[PlayerCtrl] OnMove — phase={ctx.phase}, val={ctx.ReadValue<Vector2>()}");
         if (!inputEnabled) { moveInput = Vector2.zero; return; }
         moveInput = ctx.ReadValue<Vector2>();
     }
 
-    public void OnLook(InputAction.CallbackContext ctx)
+    void OnLook(InputAction.CallbackContext ctx)
     {
-        if (lookCallCount < 5)
-            Debug.Log($"[PlayerCtrl] OnLook called — phase={ctx.phase}, value={ctx.ReadValue<Vector2>()}, inputEnabled={inputEnabled}");
-        lookCallCount++;
-
+        Debug.Log($"[PlayerCtrl] OnLook — phase={ctx.phase}, val={ctx.ReadValue<Vector2>()}");
         if (!inputEnabled) return;
 
         Vector2 delta = ctx.ReadValue<Vector2>() * mouseSensitivity * Time.deltaTime;
@@ -84,16 +92,16 @@ public class PlayerController : MonoBehaviour
         transform.Rotate(Vector3.up, delta.x);
     }
 
-    public void OnCrouch(InputAction.CallbackContext ctx)
+    void OnCrouch(InputAction.CallbackContext ctx)
     {
-        Debug.Log($"[PlayerCtrl] OnCrouch called — phase={ctx.phase}, inputEnabled={inputEnabled}");
+        Debug.Log($"[PlayerCtrl] OnCrouch — phase={ctx.phase}");
         if (!inputEnabled) { crouchHeld = false; return; }
         crouchHeld = ctx.ReadValueAsButton();
     }
 
-    public void OnJump(InputAction.CallbackContext ctx)
+    void OnJump(InputAction.CallbackContext ctx)
     {
-        Debug.Log($"[PlayerCtrl] OnJump called — phase={ctx.phase}, inputEnabled={inputEnabled}");
+        Debug.Log($"[PlayerCtrl] OnJump — phase={ctx.phase}");
         if (!inputEnabled) { jumpTriggered = false; return; }
         if (ctx.performed) jumpTriggered = true;
     }
