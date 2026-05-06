@@ -18,7 +18,6 @@ public class PlayerController : MonoBehaviour
     private bool jumpTriggered;
 
     private PlayControls controls;
-    private float debugLogTimer;
 
     void Start()
     {
@@ -71,13 +70,13 @@ public class PlayerController : MonoBehaviour
 
     void OnMove(InputAction.CallbackContext ctx)
     {
+        // Event kept for debug; actual movement uses controls.Player.Move.ReadValue in Update()
         Debug.Log($"[PlayerCtrl] OnMove — phase={ctx.phase}, val={ctx.ReadValue<Vector2>()}");
-        if (!inputEnabled) { moveInput = Vector2.zero; return; }
-        moveInput = ctx.ReadValue<Vector2>();
     }
 
     void OnLook(InputAction.CallbackContext ctx)
     {
+        Debug.Log($"[PlayerCtrl] OnLook — phase={ctx.phase}, val={ctx.ReadValue<Vector2>()}");
         if (!inputEnabled) return;
 
         Vector2 delta = ctx.ReadValue<Vector2>() * mouseSensitivity * 0.05f;
@@ -107,14 +106,10 @@ public class PlayerController : MonoBehaviour
 
     void Update()
     {
-        debugLogTimer -= Time.deltaTime;
-        if (debugLogTimer <= 0f)
-        {
-            debugLogTimer = 1f;
-            Debug.Log($"[PlayerCtrl] Update — inputEnabled={inputEnabled}, moveInput={moveInput}, pos={transform.position}");
-        }
-
         if (!inputEnabled) return;
+
+        // Poll current input directly — events only fire on change, held keys need polling
+        moveInput = controls.Player.Move.ReadValue<Vector2>();
 
         // Local movement
         float speed = crouchHeld ? crouchSpeed : moveSpeed;
