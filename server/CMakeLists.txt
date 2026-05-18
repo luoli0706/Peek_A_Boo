@@ -12,17 +12,16 @@ add_executable(server
     third_party/enet/enet.c
 )
 
-find_package(Protobuf REQUIRED)
+find_package(protobuf CONFIG REQUIRED)
 
 target_include_directories(server PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/generated
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/enet
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/enet/include
-    ${Protobuf_INCLUDE_DIRS}
 )
 
-target_link_libraries(server PRIVATE ${Protobuf_LIBRARIES})
+target_link_libraries(server PRIVATE protobuf::libprotobuf)
 
 if (WIN32)
     target_link_libraries(server PRIVATE ws2_32 winmm)

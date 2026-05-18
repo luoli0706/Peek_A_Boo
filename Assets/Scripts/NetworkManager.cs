@@ -1,9 +1,8 @@
 using System;
 using System.Runtime.InteropServices;
 using UnityEngine;
+using Peekaboo;
 
-// Peek-A-Boo NetworkManager (Phase 1)
-// ENET client lifecycle, message dispatch, events for other systems
 public class NetworkManager : MonoBehaviour
 {
     [Header("Connection")]
@@ -19,8 +18,7 @@ public class NetworkManager : MonoBehaviour
     public byte myRole { get; private set; }
     public bool IsConnected => peer.IsSet;
 
-    // Events for other systems to subscribe
-    public event Action<RemotePlayerState[]> OnPlayerStates;
+    public event Action<PlayerStates> OnPlayerStates;
     public event Action<GameState, ushort> OnGameStateChange;
 
     private bool enetReady;
@@ -46,7 +44,7 @@ public class NetworkManager : MonoBehaviour
         Debug.Log("[Network] ENET initialized");
 
         host = new ENet.Host();
-        host.Create(1, 2); // client host: 1 peer, 2 channels (ch0=reliable, ch1=unreliable)
+        host.Create(1, 2);
         enetReady = true;
         Debug.Log("[Network] Client host created. Call Connect() to join server.");
     }
@@ -69,7 +67,7 @@ public class NetworkManager : MonoBehaviour
         address.SetHost(serverIP);
         address.Port = serverPort;
 
-        peer = host.Connect(address, 2); // 2 channels (ch0=reliable, ch1=unreliable)
+        peer = host.Connect(address, 2);
         Debug.Log($"[Network] Connecting to {serverIP}:{serverPort}...");
     }
 
@@ -110,58 +108,62 @@ public class NetworkManager : MonoBehaviour
         int length = netEvent.Packet.Length;
         if (length < 1) return;
 
-        // Copy unmanaged data to managed array
         byte[] data = new byte[length];
         Marshal.Copy(dataPtr, data, 0, length);
 
-        byte msgType = data[0];
-        byte[] payload = new byte[length - 1];
-        if (length > 1)
-            Buffer.BlockCopy(data, 1, payload, 0, length - 1);
-
-        switch (msgType)
+        Packet packet;
+        try
         {
-            case MsgType.Welcome:
-                HandleWelcome(payload);
+            packet = Packet.Parser.ParseFrom(data);
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[Network] Failed to parse protobuf packet ({length} bytes): {e.Message}");
+            return;
+        }
+
+        switch (packet.PayloadCase)
+        {
+            case Packet.PayloadOneofCase.Welcome:
+                HandleWelcome(packet.Welcome);
                 break;
 
-            case MsgType.GameStateChange:
-                HandleGameStateChange(payload);
+            case Packet.PayloadOneofCase.GameStateChange:
+                HandleGameStateChange(packet.GameStateChange);
                 break;
 
-            case MsgType.PlayerStates:
-                OnPlayerStates?.Invoke(PlayerStatesDeserializer.Deserialize(payload));
+            case Packet.PayloadOneofCase.PlayerStates:
+                OnPlayerStates?.Invoke(packet.PlayerStates);
                 break;
 
-            case MsgType.Highlight:
-                Debug.Log($"[Network] Highlight received ({payload.Length} bytes)");
+            case Packet.PayloadOneofCase.Highlight:
+                Debug.Log($"[Network] Highlight: player_id={packet.Highlight.PlayerId}");
                 break;
 
-            case MsgType.TagResult:
-                Debug.Log($"[Network] TagResult: seeker={payload[0]}, target={payload[1]}, success={payload[2]}");
+            case Packet.PayloadOneofCase.TagResult:
+                var tag = packet.TagResult;
+                Debug.Log($"[Network] TagResult: seeker={tag.SeekerId}, target={tag.TargetId}, success={tag.Success}");
                 break;
 
-            case MsgType.ScoreBoard:
-                string json = System.Text.Encoding.UTF8.GetString(payload);
-                Debug.Log($"[Network] ScoreBoard: {json}");
+            case Packet.PayloadOneofCase.ScoreBoard:
+                Debug.Log($"[Network] ScoreBoard: {packet.ScoreBoard.Json}");
                 break;
 
-            case MsgType.Error:
-                Debug.LogError($"[Network] Server error: code={payload[0]}");
+            case Packet.PayloadOneofCase.Error:
+                Debug.LogError($"[Network] Server error: code={packet.Error.Code}");
                 break;
 
             default:
-                Debug.LogWarning($"[Network] Unknown msg_type=0x{msgType:X2}, len={length}");
+                Debug.LogWarning($"[Network] Unhandled packet: {packet.PayloadCase}");
                 break;
         }
     }
 
-    void HandleWelcome(byte[] payload)
+    void HandleWelcome(Welcome msg)
     {
-        ClientProtocol.DeserializeWelcome(payload, out byte playerId, out byte role);
-        myPlayerId = playerId;
-        myRole = role;
-        string roleName = (PlayerRole)myRole switch
+        myPlayerId = (byte)msg.PlayerId;
+        myRole = (byte)msg.Role;
+        string roleName = msg.Role switch
         {
             PlayerRole.Seeker => "Seeker",
             PlayerRole.Hider => "Hider",
@@ -170,17 +172,17 @@ public class NetworkManager : MonoBehaviour
         };
         Debug.Log($"[Network] Welcome! player_id={myPlayerId}, role={roleName}");
 
-        // Auto-send JoinRoom
         byte[] joinMsg = ClientProtocol.SerializeJoinRoom(playerName);
         Send(channel: 0, reliable: true, joinMsg);
         Debug.Log($"[Network] Sent JoinRoom: \"{playerName}\"");
     }
 
-    void HandleGameStateChange(byte[] payload)
+    void HandleGameStateChange(GameStateChange msg)
     {
-        ClientProtocol.DeserializeGameStateChange(payload, out byte state, out ushort countdown);
-        Debug.Log($"[Network] GameState => {(GameState)state}, countdown={countdown}s");
-        OnGameStateChange?.Invoke((GameState)state, countdown);
+        GameState state = msg.State;
+        ushort countdown = (ushort)msg.CountdownSec;
+        Debug.Log($"[Network] GameState => {state}, countdown={countdown}s");
+        OnGameStateChange?.Invoke(state, countdown);
     }
 
     void OnDisconnect(ENet.EventType type)

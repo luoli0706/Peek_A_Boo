@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Peekaboo;
 using UnityEngine;
 
 public class RemotePlayerManager : MonoBehaviour
@@ -14,7 +15,6 @@ public class RemotePlayerManager : MonoBehaviour
 
         if (remotePlayerPrefab == null)
         {
-            // Create a default capsule prefab
             remotePlayerPrefab = GameObject.CreatePrimitive(PrimitiveType.Capsule);
             remotePlayerPrefab.name = "RemotePlayer_Default";
             remotePlayerPrefab.SetActive(false);
@@ -27,28 +27,28 @@ public class RemotePlayerManager : MonoBehaviour
             NetworkManager.Instance.OnPlayerStates -= OnPlayerStates;
     }
 
-    void OnPlayerStates(RemotePlayerState[] states)
+    void OnPlayerStates(PlayerStates states)
     {
-        if (states == null) return;
+        if (states?.Players == null) return;
 
         byte myId = NetworkManager.Instance.myPlayerId;
 
-        foreach (var s in states)
+        foreach (var entry in states.Players)
         {
-            // Skip local player (we control our own position)
-            if (s.playerId == myId) continue;
+            int id = (int)entry.PlayerId;
+            if (id == myId) continue;
 
             GameObject go;
-            if (!remotePlayers.TryGetValue(s.playerId, out go) || go == null)
+            if (!remotePlayers.TryGetValue(id, out go) || go == null)
             {
                 go = Instantiate(remotePlayerPrefab);
-                go.name = $"RemotePlayer_{s.playerId}";
+                go.name = $"RemotePlayer_{id}";
                 go.SetActive(true);
-                remotePlayers[s.playerId] = go;
+                remotePlayers[id] = go;
             }
 
-            go.transform.position = new Vector3(s.posX, 0.5f, s.posZ);
-            go.transform.rotation = Quaternion.Euler(0f, s.rotY, 0f);
+            go.transform.position = new Vector3(entry.PosX, 0.5f, entry.PosZ);
+            go.transform.rotation = Quaternion.Euler(0f, entry.RotY, 0f);
         }
     }
 }
