@@ -19,7 +19,8 @@ static Player* find_player(ENetPeer* peer) {
 
 static void on_connect(ENetPeer* peer) {
     uint8_t id = next_player_id++;
-    Role role = (id == 0) ? Role::Seeker : Role::Hider;
+    auto role = (id == 0) ? peekaboo::PlayerRole::PLAYER_ROLE_SEEKER
+                          : peekaboo::PlayerRole::PLAYER_ROLE_HIDER;
 
     Player p;
     p.id = id;
@@ -30,22 +31,25 @@ static void on_connect(ENetPeer* peer) {
     p.pos_y = 0.0f;
     p.pos_z = 0.0f;
     p.rot_y = 0.0f;
-    p.state = PlayerState::Normal;
+    p.state = peekaboo::PlayerState::PLAYER_STATE_NORMAL;
     snprintf(p.name, sizeof(p.name), "Player%d", id);
 
     players.push_back(p);
 
-    send_welcome(peer, id, static_cast<uint8_t>(role));
+    send_welcome(peer, id, role);
     printf("[+] Player %d connected (role=%d), total=%zu\n", id, static_cast<int>(role), players.size());
 }
 
 static void on_receive(ENetPeer* peer, const ENetPacket* packet) {
-    if (packet->dataLength < 1) return;
-    uint8_t msg_type = packet->data[0];
+    peekaboo::Packet msg;
+    if (!parse_packet(packet, msg)) {
+        printf("[?] Invalid protobuf packet, len=%zu\n", static_cast<size_t>(packet->dataLength));
+        return;
+    }
 
-    switch (msg_type) {
-        case MsgType::JoinRoom: {
-            std::string name = read_string(packet->data + 1, packet->dataLength - 1);
+    switch (msg.payload_case()) {
+        case peekaboo::Packet::kJoinRoom: {
+            const std::string& name = msg.join_room().name();
             Player* p = find_player(peer);
             if (p) {
                 strncpy(p->name, name.c_str(), sizeof(p->name) - 1);
@@ -54,31 +58,27 @@ static void on_receive(ENetPeer* peer, const ENetPacket* packet) {
             printf("[<] JoinRoom from: %s\n", name.c_str());
 
             // Send current game state to the connecting player
-            send_game_state_change(peer, static_cast<uint8_t>(GameState::WaitingForPlayers), 0);
+            send_game_state_change(peer, peekaboo::GameState::GAME_STATE_WAITING_FOR_PLAYERS, 0);
             break;
         }
-        case MsgType::PlayerInput: {
-            float mx, mz, ry;
-            uint8_t flags;
-            if (read_player_input(packet->data + 1, packet->dataLength - 1, mx, mz, ry, flags)) {
-                Player* p = find_player(peer);
-                if (p) {
-                    InputEntry in;
-                    in.move_x = mx;
-                    in.move_z = mz;
-                    in.rot_y = ry;
-                    in.flags = flags;
-                    p->input.push(in);
-                }
+        case peekaboo::Packet::kPlayerInput: {
+            const auto& input_msg = msg.player_input();
+            Player* p = find_player(peer);
+            if (p) {
+                InputEntry in;
+                in.move_x = input_msg.move_x();
+                in.move_z = input_msg.move_z();
+                in.rot_y = input_msg.rot_y();
+                in.flags = static_cast<uint8_t>(input_msg.flags());
+                p->input.push(in);
             }
             break;
         }
-        case MsgType::PlayerReady:
+        case peekaboo::Packet::kPlayerReady:
             printf("[<] PlayerReady\n");
             break;
         default:
-                 printf("[?] Unknown msg_type=0x%02X, len=%zu\n", msg_type,
-                     static_cast<size_t>(packet->dataLength));
+            printf("[?] Unknown protobuf message, len=%zu\n", static_cast<size_t>(packet->dataLength));
             break;
     }
 }
@@ -156,7 +156,9 @@ int main() {
                     p.pos_x += (input->move_x * rx + input->move_z * fx) * MOVE_SPEED * dt;
                     p.pos_z += (input->move_x * rz + input->move_z * fz) * MOVE_SPEED * dt;
 
-                    p.state = (input->flags & INPUT_FLAG_CROUCH) ? PlayerState::Crouching : PlayerState::Normal;
+                    p.state = (input->flags & INPUT_FLAG_CROUCH)
+                                  ? peekaboo::PlayerState::PLAYER_STATE_CROUCHING
+                                  : peekaboo::PlayerState::PLAYER_STATE_NORMAL;
                 }
             }
 

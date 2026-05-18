@@ -1,6 +1,7 @@
 #pragma once
 #include "enet.h"
 #include "types.h"
+#include "peekaboo.pb.h"
 #include <cstdint>
 #include <cstring>
 
@@ -47,7 +48,7 @@ struct InputBuffer {
 
 struct Player {
     uint8_t id = 0;
-    Role role = Role::Spectator;
+    peekaboo::PlayerRole role = peekaboo::PlayerRole::PLAYER_ROLE_SPECTATOR;
     bool connected = false;
     ENetPeer* peer = nullptr;
     float pos_x = 0.0f;
@@ -56,5 +57,5 @@ struct Player {
     float rot_y = 0.0f;
     char name[32] = "";
     InputBuffer input;
-    PlayerState state = PlayerState::Normal;
+    peekaboo::PlayerState state = peekaboo::PlayerState::PLAYER_STATE_NORMAL;
 };
