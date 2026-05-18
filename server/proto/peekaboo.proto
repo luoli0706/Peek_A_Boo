@@ -1,0 +1,98 @@
+syntax = "proto3";
+
+package peekaboo;
+
+enum GameState {
+  GAME_STATE_WAITING_FOR_PLAYERS = 0;
+  GAME_STATE_PREPARING = 1;
+  GAME_STATE_HIDING = 2;
+  GAME_STATE_SEEKING = 3;
+  GAME_STATE_ROUND_END = 4;
+  GAME_STATE_GAME_OVER = 5;
+}
+
+enum PlayerRole {
+  PLAYER_ROLE_SEEKER = 0;
+  PLAYER_ROLE_HIDER = 1;
+  PLAYER_ROLE_SPECTATOR = 2;
+}
+
+enum PlayerState {
+  PLAYER_STATE_NORMAL = 0;
+  PLAYER_STATE_CROUCHING = 1;
+  PLAYER_STATE_CAUGHT = 2;
+  PLAYER_STATE_SPECTATING = 3;
+}
+
+message JoinRoom {
+  string name = 1;
+}
+
+message PlayerInput {
+  float move_x = 1;
+  float move_z = 2;
+  float rot_y = 3;
+  uint32 flags = 4;
+}
+
+message TagAttempt {
+  uint32 target_id = 1;
+}
+
+message PlayerReady {}
+
+message Welcome {
+  uint32 player_id = 1;
+  PlayerRole role = 2;
+}
+
+message GameStateChange {
+  GameState state = 1;
+  uint32 countdown_sec = 2;
+}
+
+message PlayerStateEntry {
+  uint32 player_id = 1;
+  PlayerState state = 2;
+  float pos_x = 3;
+  float pos_z = 4;
+  float rot_y = 5;
+}
+
+message PlayerStates {
+  repeated PlayerStateEntry players = 1;
+}
+
+message Highlight {
+  uint32 player_id = 1;
+}
+
+message TagResult {
+  uint32 seeker_id = 1;
+  uint32 target_id = 2;
+  bool success = 3;
+}
+
+message ScoreBoard {
+  string json = 1;
+}
+
+message Error {
+  uint32 code = 1;
+}
+
+message Packet {
+  oneof payload {
+    JoinRoom join_room = 1;
+    PlayerInput player_input = 2;
+    TagAttempt tag_attempt = 3;
+    PlayerReady player_ready = 4;
+    Welcome welcome = 10;
+    GameStateChange game_state_change = 11;
+    PlayerStates player_states = 12;
+    Highlight highlight = 13;
+    TagResult tag_result = 14;
+    ScoreBoard score_board = 15;
+    Error error = 16;
+  }
+}
