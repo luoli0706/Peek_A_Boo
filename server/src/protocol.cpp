@@ -57,3 +57,70 @@ void send_player_states(ENetHost* host, const Player players[], size_t count) {
     if (msg->players_size() == 0) return;
     broadcast_packet(host, packet, ENET_PACKET_FLAG_UNSEQUENCED);
 }
+
+void broadcast_game_state_change(ENetHost* host, peekaboo::GameState state, uint16_t countdown_sec) {
+    peekaboo::Packet packet;
+    auto* msg = packet.mutable_game_state_change();
+    msg->set_state(state);
+    msg->set_countdown_sec(countdown_sec);
+
+    std::string data;
+    if (packet.SerializeToString(&data)) {
+        ENetPacket* pkt = enet_packet_create(data.data(), data.size(), ENET_PACKET_FLAG_RELIABLE);
+        enet_host_broadcast(host, ENET_CH_RELIABLE, pkt);
+    }
+}
+
+void broadcast_tag_result(ENetHost* host, uint8_t seeker_id, uint8_t target_id, bool success) {
+    peekaboo::Packet packet;
+    auto* msg = packet.mutable_tag_result();
+    msg->set_seeker_id(seeker_id);
+    msg->set_target_id(target_id);
+    msg->set_success(success);
+
+    std::string data;
+    if (packet.SerializeToString(&data)) {
+        ENetPacket* pkt = enet_packet_create(data.data(), data.size(), ENET_PACKET_FLAG_RELIABLE);
+        enet_host_broadcast(host, ENET_CH_RELIABLE, pkt);
+    }
+}
+
+void broadcast_scoreboard(ENetHost* host, const std::vector<Player>& players) {
+    peekaboo::Packet packet;
+    auto* msg = packet.mutable_score_board();
+
+    std::string json = "{\"scores\":[";
+    bool first = true;
+    for (const auto& p : players) {
+        if (!p.connected) continue;
+        if (!first) json += ",";
+        first = false;
+
+        int score = 0;
+        int tags = 0;
+        if (p.role == peekaboo::PlayerRole::PLAYER_ROLE_SEEKER) {
+            tags = 1;
+            score = 150;
+        } else {
+            score = (p.state == peekaboo::PlayerState::PLAYER_STATE_CAUGHT) ? 50 : 200;
+        }
+
+        char buf[256];
+        snprintf(buf, sizeof(buf),
+                 "{\"playerId\":%d,\"name\":\"%s\",\"role\":\"%s\",\"score\":%d,\"tags\":%d,\"surviveTime\":%d}",
+                 p.id, p.name,
+                 (p.role == peekaboo::PlayerRole::PLAYER_ROLE_SEEKER) ? "Seeker" : "Hider",
+                 score, tags, (p.role == peekaboo::PlayerRole::PLAYER_ROLE_SEEKER) ? 0 : 45);
+        json += buf;
+    }
+    json += "]}";
+
+    msg->set_json(json);
+
+    std::string data;
+    if (packet.SerializeToString(&data)) {
+        ENetPacket* pkt = enet_packet_create(data.data(), data.size(), ENET_PACKET_FLAG_RELIABLE);
+        enet_host_broadcast(host, ENET_CH_RELIABLE, pkt);
+    }
+}
+

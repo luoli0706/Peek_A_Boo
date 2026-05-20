@@ -19,6 +19,41 @@ public class MenuController : MonoBehaviour
 
     void Start()
     {
+        // 动态排布 HUD 的 Labels，完美防止在不同分辨率和场景加载时发生任何重叠
+        if (roleLabel != null)
+        {
+            RectTransform roleRect = roleLabel.GetComponent<RectTransform>();
+            if (roleRect != null)
+            {
+                roleRect.anchorMin = new Vector2(0f, 1f); // 锚定到左上角
+                roleRect.anchorMax = new Vector2(0f, 1f);
+                roleRect.pivot = new Vector2(0f, 1f);
+                roleRect.anchoredPosition = new Vector2(20f, -20f); // 距左侧 20，距顶部 -20
+                roleRect.sizeDelta = new Vector2(300f, 40f);
+                
+                roleLabel.fontSize = 18f;
+                roleLabel.fontStyle = FontStyles.Bold;
+                roleLabel.color = new Color(0f, 1f, 1f); // 科技青色
+            }
+        }
+
+        if (stateLabel != null)
+        {
+            RectTransform stateRect = stateLabel.GetComponent<RectTransform>();
+            if (stateRect != null)
+            {
+                stateRect.anchorMin = new Vector2(0f, 1f); // 同样锚定到左上角
+                stateRect.anchorMax = new Vector2(0f, 1f);
+                stateRect.pivot = new Vector2(0f, 1f);
+                stateRect.anchoredPosition = new Vector2(20f, -60f); // 距左侧 20，距顶部 -60 (间隔 40px)
+                stateRect.sizeDelta = new Vector2(300f, 40f);
+
+                stateLabel.fontSize = 16f;
+                stateLabel.fontStyle = FontStyles.Italic;
+                stateLabel.color = new Color(1f, 0.8f, 0f); // 警报金色
+            }
+        }
+
         // Main menu setup
         if (connectButton != null)
             connectButton.onClick.AddListener(OnConnectClicked);

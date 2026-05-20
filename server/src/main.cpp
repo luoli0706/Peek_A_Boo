@@ -10,6 +10,10 @@
 static std::vector<Player> players;
 static uint8_t next_player_id = 0;
 
+static ENetHost* server_host = nullptr;
+static peekaboo::GameState game_state = peekaboo::GameState::GAME_STATE_SEEKING;
+static float game_timer = 0.0f;
+
 static Player* find_player(ENetPeer* peer) {
     for (auto& p : players) {
         if (p.peer == peer) return &p;
@@ -58,7 +62,7 @@ static void on_receive(ENetPeer* peer, const ENetPacket* packet) {
             printf("[<] JoinRoom from: %s\n", name.c_str());
 
             // Send current game state to the connecting player
-            send_game_state_change(peer, peekaboo::GameState::GAME_STATE_WAITING_FOR_PLAYERS, 0);
+            send_game_state_change(peer, game_state, static_cast<uint16_t>(game_timer));
             break;
         }
         case peekaboo::Packet::kPlayerInput: {
@@ -71,6 +75,82 @@ static void on_receive(ENetPeer* peer, const ENetPacket* packet) {
                 in.rot_y = input_msg.rot_y();
                 in.flags = static_cast<uint8_t>(input_msg.flags());
                 p->input.push(in);
+            }
+            break;
+        }
+        case peekaboo::Packet::kTagAttempt: {
+            Player* seeker = find_player(peer);
+            if (!seeker) {
+                printf("[TagAttempt] Sender peer not found!\n");
+                break;
+            }
+            if (seeker->role != peekaboo::PlayerRole::PLAYER_ROLE_SEEKER) {
+                printf("[TagAttempt] Player %d attempted to tag, but is not a Seeker! Role=%d\n", seeker->id, static_cast<int>(seeker->role));
+                break;
+            }
+
+            uint8_t target_id = static_cast<uint8_t>(msg.tag_attempt().target_id());
+            Player* target = nullptr;
+            for (auto& pl : players) {
+                if (pl.id == target_id) {
+                    target = &pl;
+                    break;
+                }
+            }
+
+            if (!target) {
+                printf("[TagAttempt] Seeker %d tried to tag player %d, but target not found!\n", seeker->id, target_id);
+                broadcast_tag_result(server_host, seeker->id, target_id, false);
+                break;
+            }
+
+            if (target->role != peekaboo::PlayerRole::PLAYER_ROLE_HIDER) {
+                printf("[TagAttempt] Seeker %d tried to tag player %d, but target is not a Hider! Role=%d\n", seeker->id, target_id, static_cast<int>(target->role));
+                broadcast_tag_result(server_host, seeker->id, target_id, false);
+                break;
+            }
+
+            if (target->state == peekaboo::PlayerState::PLAYER_STATE_CAUGHT) {
+                printf("[TagAttempt] Seeker %d tried to tag player %d, but target is already Caught!\n", seeker->id, target_id);
+                broadcast_tag_result(server_host, seeker->id, target_id, false);
+                break;
+            }
+
+            // Distance calculation
+            float dx = seeker->pos_x - target->pos_x;
+            float dz = seeker->pos_z - target->pos_z;
+            float dist = sqrtf(dx * dx + dz * dz);
+
+            printf("[TagAttempt] Seeker %d tags Hider %d. Distance: %.2f meters\n", seeker->id, target_id, dist);
+
+            // Allow up to 6 meters to account for lag/tick differences
+            if (dist <= 6.0f) {
+                target->state = peekaboo::PlayerState::PLAYER_STATE_CAUGHT;
+                
+                broadcast_tag_result(server_host, seeker->id, target_id, true);
+                printf("[TagAttempt] Success! Hider %d is now CAUGHT.\n", target_id);
+
+                // Check if all Hiders are caught
+                int active_hiders = 0;
+                for (const auto& pl : players) {
+                    if (pl.connected && pl.role == peekaboo::PlayerRole::PLAYER_ROLE_HIDER && pl.state != peekaboo::PlayerState::PLAYER_STATE_CAUGHT) {
+                        active_hiders++;
+                    }
+                }
+
+                printf("[TagAttempt] Remaining active Hiders: %d\n", active_hiders);
+
+                if (active_hiders == 0) {
+                    game_state = peekaboo::GameState::GAME_STATE_ROUND_END;
+                    game_timer = 15.0f;
+
+                    broadcast_game_state_change(server_host, game_state, 15);
+                    broadcast_scoreboard(server_host, players);
+                    printf("[GameLoop] All Hiders caught! Round end triggered. GameState => RoundEnd. ScoreBoard broadcasted!\n");
+                }
+            } else {
+                printf("[TagAttempt] Failed: Seeker %d too far from Hider %d (%.2f meters)\n", seeker->id, target_id, dist);
+                broadcast_tag_result(server_host, seeker->id, target_id, false);
             }
             break;
         }
@@ -112,6 +192,8 @@ int main() {
         fprintf(stderr, "FATAL: enet_host_create() failed\n");
         return 1;
     }
+    server_host = host;
+
 
     printf("Server listening on UDP port %d (max %d players, %d channels)\n",
            SERVER_PORT, MAX_PLAYERS, ENET_CHANNELS);
@@ -138,6 +220,21 @@ int main() {
             accumulator -= SERVER_TICK_STEP_MS;
             float dt = SERVER_TICK_STEP_MS / 1000.0f;
 
+            if (game_state == peekaboo::GameState::GAME_STATE_ROUND_END) {
+                game_timer -= dt;
+                if (game_timer <= 0.0f) {
+                    game_state = peekaboo::GameState::GAME_STATE_SEEKING;
+                    game_timer = 0.0f;
+
+                    for (auto& p : players) {
+                        p.state = peekaboo::PlayerState::PLAYER_STATE_NORMAL;
+                    }
+
+                    broadcast_game_state_change(host, game_state, 0);
+                    printf("[GameLoop] Round end timer completed. Transitioning to GAME_STATE_SEEKING. Players state reset to NORMAL.\n");
+                }
+            }
+
             for (auto& p : players) {
                 if (!p.connected || p.peer == nullptr) continue;
 
@@ -145,7 +242,7 @@ int main() {
                 p.input.clear();
 
                 if (input) {
-                    p.rot_y += input->rot_y * ROT_SPEED * dt;
+                    p.rot_y = input->rot_y;
 
                     float rad = p.rot_y * PI / 180.0f;
                     float fx = sinf(rad);

@@ -20,6 +20,9 @@ public class NetworkManager : MonoBehaviour
 
     public event Action<PlayerStates> OnPlayerStates;
     public event Action<GameState, ushort> OnGameStateChange;
+    public event Action<Highlight> OnHighlightReceived;
+    public event Action<TagResult> OnTagResultReceived;
+    public event Action<ScoreBoard> OnScoreBoardReceived;
 
     private bool enetReady;
 
@@ -138,15 +141,18 @@ public class NetworkManager : MonoBehaviour
 
             case Packet.PayloadOneofCase.Highlight:
                 Debug.Log($"[Network] Highlight: player_id={packet.Highlight.PlayerId}");
+                OnHighlightReceived?.Invoke(packet.Highlight);
                 break;
 
             case Packet.PayloadOneofCase.TagResult:
                 var tag = packet.TagResult;
                 Debug.Log($"[Network] TagResult: seeker={tag.SeekerId}, target={tag.TargetId}, success={tag.Success}");
+                OnTagResultReceived?.Invoke(tag);
                 break;
 
             case Packet.PayloadOneofCase.ScoreBoard:
                 Debug.Log($"[Network] ScoreBoard: {packet.ScoreBoard.Json}");
+                OnScoreBoardReceived?.Invoke(packet.ScoreBoard);
                 break;
 
             case Packet.PayloadOneofCase.Error:

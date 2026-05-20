@@ -3,7 +3,7 @@
 > 7-player PVP first-person hide-and-seek — 1 Seeker, 6 Hiders, 120 seconds, heartbeat reveal every 30s.
 > 7人 PVP 第一人称躲猫猫——1位寻找者，6位躲藏者，120秒倒计时，每30秒全局高亮打破僵局。
 
-**Status / 状态:** Phase 1 — Core game loop (30Hz server tick, player input sync, procedural map, HUD)
+**Status / 状态:** Phase 2 — Core gameplay complete (F-Hold tag, heartbeat highlight, neon notifications, robust scoreboard reset)
 **Engine / 引擎:** Unity 6.3 LTS (C#) + C++20 dedicated server (ENET UDP)
 **License / 许可证:** Apache 2.0
 
@@ -56,9 +56,9 @@ See [docs/phase1-scene-setup.md](docs/phase1-scene-setup.md) for detailed scene 
 | Phase | Status | Highlights |
 |-------|--------|------------|
 | **0** | Done / 已完成 | C++ ENET server ↔ Unity client handshake, Welcome/JoinRoom |
-| **1** | Active / 进行中 | 30Hz tick loop, player input sync, procedural map, HUD, timer |
-| **2** | Planned / 计划中 | Highlight system, tag mechanics, scoreboard |
-| **3** | Planned / 计划中 | Server reconciliation, prop hunt mode, AI props |
+| **1** | Done / 已完成 | 30Hz tick loop, player input sync, procedural map, HUD, timer |
+| **2** | Done / 已完成 | Heartbeat highlight, F-Hold interactive tag, dynamic caught visual lock, cyber-neon HUD UI layout & scoreboard round-reset loops |
+| **3** | Active / 进行中 | Server reconciliation, client-side prediction, prop hunt mode, AI props |
 
 ## Project Structure / 项目结构
 
@@ -94,7 +94,9 @@ Peek-A-Boo/
 │   └── World/                #   procedural-map-generator
 ├── docs/
 │   ├── BluePrint.md          #   Game design document (v3.1)
-│   └── phase1-scene-setup.md #   Unity scene configuration guide
+│   ├── phase1-scene-setup.md #   Unity scene configuration guide
+│   ├── phase2-gameplay-setup.md #   Phase 2 client components deployment guide
+│   └── scene-setup-instructions.md # Main scene YAML reconstruction & HUD physical overlapping fix
 └── README.md
 ```
 
