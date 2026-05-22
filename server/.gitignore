@@ -9,5 +9,8 @@ server.exe
 # 编译中间文件
 *.o
 
+# Protobuf 生成文件（改为构建期生成）
+generated/
+
 # 日志文件
 *.log
